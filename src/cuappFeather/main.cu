@@ -181,7 +181,7 @@ namespace Clustering
 		}
 	}
 
-	__global__ void Kernel_InterBlockMerge(
+	__global__ void Kernel_InterBlockMerge26Way(
 		Voxel* voxels,
 		uint3* occupiedIndices,
 		unsigned int numOccupied,
@@ -212,6 +212,44 @@ namespace Clustering
 						Union(voxels, center, neighbor);
 					}
 				}
+			}
+		}
+	}
+
+	__global__ void Kernel_InterBlockMerge6Way(
+		Voxel* voxels,
+		uint3* occupiedIndices,
+		unsigned int numOccupied,
+		dim3 dims)
+	{
+		unsigned int tid = blockIdx.x * blockDim.x + threadIdx.x;
+		if (tid >= numOccupied) return;
+
+		uint3 idx = occupiedIndices[tid];
+		unsigned int center = idx.z * dims.y * dims.x + idx.y * dims.x + idx.x;
+		//if (voxels[center].position.x == FLT_MAX) return;
+		if (0 == voxels[center].label) return;
+
+		const int3 neighbors[6] = {
+		{  1,  0,  0 },
+		{ -1,  0,  0 },
+		{  0,  1,  0 },
+		{  0, -1,  0 },
+		{  0,  0,  1 },
+		{  0,  0, -1 }
+		};
+
+		for (int i = 0; i < 6; ++i) {
+			int nx = idx.x + neighbors[i].x;
+			int ny = idx.y + neighbors[i].y;
+			int nz = idx.z + neighbors[i].z;
+
+			if (nx < 0 || ny < 0 || nz < 0 || nx >= dims.x || ny >= dims.y || nz >= dims.z)
+				continue;
+
+			unsigned int neighbor = nz * dims.y * dims.x + ny * dims.x + nx;
+			if (0 != voxels[neighbor].label) {
+				Union(voxels, center, neighbor);
 			}
 		}
 	}
@@ -307,7 +345,7 @@ namespace Clustering
 		unsigned int gridVoxels = (totalVoxels + blockSize - 1) / blockSize;
 		unsigned int gridOccupied = (numberOfOccupiedVoxelIndices + blockSize - 1) / blockSize;
 
-		Kernel_InterBlockMerge << <gridOccupied, blockSize >> > (d_voxels, occupiedVoxelIndices, numberOfOccupiedVoxelIndices, volumeDimensions);
+		Kernel_InterBlockMerge26Way << <gridOccupied, blockSize >> > (d_voxels, occupiedVoxelIndices, numberOfOccupiedVoxelIndices, volumeDimensions);
 		cudaDeviceSynchronize();
 
 		//Kernel_InterBlockMergeP << <gridOccupied, blockSize >> > (d_voxels, occupiedVoxelIndices, numberOfOccupiedVoxelIndices, volumeDimensions);
