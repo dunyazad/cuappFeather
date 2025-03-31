@@ -1,0 +1,17 @@
+[submodule "External/Feather"]
+	path = External/Feather
+	url = https://github.com/dunyazad/Feather.git
+	branch = ENTT
+[submodule "External/glfw"]
+	path = External/glfw
+	url = https://github.com/glfw/glfw.git
+[submodule "External/imgui"]
+	path = External/imgui
+	url = https://github.com/ocornut/imgui.git
+	branch = docking
+[submodule "External/implot"]
+	path = External/implot
+	url = https://github.com/epezent/implot.git
+[submodule "External/entt"]
+	path = External/entt
+	url = https://github.com/skypjack/entt.git
