@@ -1,7 +1,3 @@
-[submodule "External/Feather"]
-	path = External/Feather
-	url = https://github.com/dunyazad/Feather.git
-	branch = ENTT
 [submodule "External/glfw"]
 	path = External/glfw
 	url = https://github.com/glfw/glfw.git
