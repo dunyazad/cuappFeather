@@ -32,7 +32,7 @@ namespace Clustering
 {
 	struct Voxel
 	{
-		float3 position;
+		//float3 position;
 		unsigned int label;
 	};
 
@@ -47,8 +47,8 @@ namespace Clustering
 		unsigned int threadid = blockIdx.x * blockDim.x + threadIdx.x;
 		if (threadid >= volumeDimensions.x * volumeDimensions.y * volumeDimensions.z) return;
 
-		d_voxels[threadid].position = make_float3(FLT_MAX, FLT_MAX, FLT_MAX);
-		d_voxels[threadid].label = threadid;
+		//d_voxels[threadid].position = make_float3(FLT_MAX, FLT_MAX, FLT_MAX);
+		d_voxels[threadid].label = 0;
 	}
 
 	void ClearVoxels(
@@ -106,9 +106,9 @@ namespace Clustering
 		unsigned int volumeIndex = iz * volumeDimensions.x * volumeDimensions.y + iy * volumeDimensions.x + ix;
 		auto& voxel = d_voxels[volumeIndex];
 
-		voxel.position.x = volumeMin.x + ix * voxelSize;
-		voxel.position.y = volumeMin.y + iy * voxelSize;
-		voxel.position.z = volumeMin.z + iz * voxelSize;
+		//voxel.position.x = volumeMin.x + ix * voxelSize;
+		//voxel.position.y = volumeMin.y + iy * voxelSize;
+		//voxel.position.z = volumeMin.z + iz * voxelSize;
 		voxel.label = volumeIndex;
 
 		//alog("%f, %f, %f\n", voxel.position.x, voxel.position.y, voxel.position.z);
@@ -192,7 +192,8 @@ namespace Clustering
 
 		uint3 idx = occupiedIndices[tid];
 		unsigned int center = idx.z * dims.y * dims.x + idx.y * dims.x + idx.x;
-		if (voxels[center].position.x == FLT_MAX) return;
+		//if (voxels[center].position.x == FLT_MAX) return;
+		if (0 == voxels[center].label) return;
 
 		for (int dz = -1; dz <= 1; dz++) {
 			int nz = idx.z + dz;
@@ -206,7 +207,78 @@ namespace Clustering
 					if (dx == 0 && dy == 0 && dz == 0) continue;
 
 					unsigned int neighbor = nz * dims.y * dims.x + ny * dims.x + nx;
-					if (voxels[neighbor].position.x != FLT_MAX) {
+					//if (voxels[neighbor].position.x != FLT_MAX) {
+					if (0 != voxels[neighbor].label) {
+						Union(voxels, center, neighbor);
+					}
+				}
+			}
+		}
+	}
+
+	__global__ void Kernel_InterBlockMergeP(
+		Voxel* voxels,
+		uint3* occupiedIndices,
+		unsigned int numOccupied,
+		dim3 dims)
+	{
+		unsigned int tid = blockIdx.x * blockDim.x + threadIdx.x;
+		if (tid >= numOccupied) return;
+
+		uint3 idx = occupiedIndices[tid];
+		unsigned int center = idx.z * dims.y * dims.x + idx.y * dims.x + idx.x;
+		//if (voxels[center].position.x == FLT_MAX) return;
+		if (0 == voxels[center].label) return;
+
+		for (int dz = 0; dz <= 1; dz++) {
+			int nz = idx.z + dz;
+			if (nz < 0 || nz >= dims.z) continue;
+			for (int dy = 0; dy <= 1; dy++) {
+				int ny = idx.y + dy;
+				if (ny < 0 || ny >= dims.y) continue;
+				for (int dx = 0; dx <= 1; dx++) {
+					int nx = idx.x + dx;
+					if (nx < 0 || nx >= dims.x) continue;
+					if (dx == 0 && dy == 0 && dz == 0) continue;
+
+					unsigned int neighbor = nz * dims.y * dims.x + ny * dims.x + nx;
+					//if (voxels[neighbor].position.x != FLT_MAX) {
+					if (0 != voxels[neighbor].label) {
+						Union(voxels, center, neighbor);
+					}
+				}
+			}
+		}
+	}
+
+	__global__ void Kernel_InterBlockMergeN(
+		Voxel* voxels,
+		uint3* occupiedIndices,
+		unsigned int numOccupied,
+		dim3 dims)
+	{
+		unsigned int tid = blockIdx.x * blockDim.x + threadIdx.x;
+		if (tid >= numOccupied) return;
+
+		uint3 idx = occupiedIndices[tid];
+		unsigned int center = idx.z * dims.y * dims.x + idx.y * dims.x + idx.x;
+		//if (voxels[center].position.x == FLT_MAX) return;
+		if (0 == voxels[center].label) return;
+
+		for (int dz = -1; dz <= 0; dz++) {
+			int nz = idx.z + dz;
+			if (nz < 0 || nz >= dims.z) continue;
+			for (int dy = -1; dy <= 0; dy++) {
+				int ny = idx.y + dy;
+				if (ny < 0 || ny >= dims.y) continue;
+				for (int dx = -1; dx <= 0; dx++) {
+					int nx = idx.x + dx;
+					if (nx < 0 || nx >= dims.x) continue;
+					if (dx == 0 && dy == 0 && dz == 0) continue;
+
+					unsigned int neighbor = nz * dims.y * dims.x + ny * dims.x + nx;
+					//if (voxels[neighbor].position.x != FLT_MAX) {
+					if (0 != voxels[neighbor].label) {
 						Union(voxels, center, neighbor);
 					}
 				}
@@ -218,7 +290,8 @@ namespace Clustering
 		unsigned int tid = blockIdx.x * blockDim.x + threadIdx.x;
 		if (tid >= N) return;
 
-		if (voxels[tid].position.x != FLT_MAX) {
+		//if (voxels[tid].position.x != FLT_MAX) {
+		if (0 != voxels[tid].label) {
 			voxels[tid].label = FindRoot(voxels, tid);
 		}
 	}
@@ -237,8 +310,14 @@ namespace Clustering
 		Kernel_InterBlockMerge << <gridOccupied, blockSize >> > (d_voxels, occupiedVoxelIndices, numberOfOccupiedVoxelIndices, volumeDimensions);
 		cudaDeviceSynchronize();
 
-		Kernel_CompressLabels << <gridVoxels, blockSize >> > (d_voxels, totalVoxels);
-		cudaDeviceSynchronize();
+		//Kernel_InterBlockMergeP << <gridOccupied, blockSize >> > (d_voxels, occupiedVoxelIndices, numberOfOccupiedVoxelIndices, volumeDimensions);
+		//cudaDeviceSynchronize();
+
+		//Kernel_InterBlockMergeN << <gridOccupied, blockSize >> > (d_voxels, occupiedVoxelIndices, numberOfOccupiedVoxelIndices, volumeDimensions);
+		//cudaDeviceSynchronize();
+
+		//Kernel_CompressLabels << <gridVoxels, blockSize >> > (d_voxels, totalVoxels);
+		//cudaDeviceSynchronize();
 	}
 
 __global__ void Kernel_GetLabels(
@@ -339,7 +418,8 @@ void VisualizeVoxels(
 	{
 		auto& voxel = h_voxels[i];
 
-		if (voxel.position.x != FLT_MAX) // Only visualize occupied voxels
+		//if (voxel.position.x != FLT_MAX) // Only visualize occupied voxels
+		if (0 != voxel.label) // Only visualize occupied voxels
 		{
 			unsigned int label = voxel.label;
 
@@ -408,7 +488,8 @@ std::vector<unsigned int> cuMain(const std::vector<float3>& host_points, float3 
 	cudaMemcpy(d_points, host_points.data(), sizeof(float) * host_points.size() * 3, cudaMemcpyHostToDevice);
 
 	unsigned int numberOfPoints = host_points.size();
-	dim3 volumeDimensions(200, 300, 400);
+	//dim3 volumeDimensions(200, 300, 400);
+	dim3 volumeDimensions(400, 400, 400);
 	unsigned int numberOfVoxels = volumeDimensions.x * volumeDimensions.y * volumeDimensions.z;
 	float voxelSize = 0.1f;
 	//float3 volumeCenter = make_float3(3.9904f, -15.8357f, -7.2774f);
