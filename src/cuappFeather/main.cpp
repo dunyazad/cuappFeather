@@ -24,14 +24,28 @@ int main(int argc, char** argv)
 
 	ALPFormat<PointPNC> alp;
 
+	bool tick = false;
+
 	Feather.AddOnInitializeCallback([&]() {
 #pragma region AppMain
 		{
 			auto appMain = Feather.CreateEntity("AppMain");
-			Feather.CreateEventCallback<KeyEvent>(appMain, [](Entity entity, const KeyEvent& event) {
+			Feather.CreateEventCallback<KeyEvent>(appMain, [&tick](Entity entity, const KeyEvent& event) {
 				if (GLFW_KEY_ESCAPE == event.keyCode)
 				{
 					glfwSetWindowShouldClose(Feather.GetFeatherWindow()->GetGLFWwindow(), true);
+				}
+				else if (GLFW_KEY_TAB == event.keyCode)
+				{
+					if (0 == event.action)
+					{
+						auto o = Feather.GetEntity("Input Point Cloud _ O");
+						Feather.GetRegistry().get<Renderable>(o).SetVisible(tick);
+						auto p = Feather.GetEntity("Input Point Cloud");
+						Feather.GetRegistry().get<Renderable>(p).SetVisible(!tick);
+
+						tick = !tick;
+					}
 				}
 				});
 		}
@@ -334,8 +348,185 @@ int main(int argc, char** argv)
 
 			t = Time::End(t, "Loading Compound");
 
+			auto entity = Feather.CreateEntity("Input Point Cloud _ O");
+			auto& renderable = Feather.CreateComponent<Renderable>(entity);
+
+			renderable.Initialize(Renderable::GeometryMode::Triangles);
+			renderable.AddShader(Feather.CreateShader("Instancing", File("../../res/Shaders/Instancing.vs"), File("../../res/Shaders/Instancing.fs")));
+			renderable.AddShader(Feather.CreateShader("InstancingWithoutNormal", File("../../res/Shaders/InstancingWithoutNormal.vs"), File("../../res/Shaders/InstancingWithoutNormal.fs")));
+			renderable.SetActiveShaderIndex(1);
+
+			auto [indices, vertices, normals, colors, uvs] = GeometryBuilder::BuildSphere("zero", 0.05f, 6, 6);
+			//auto [indices, vertices, normals, colors, uvs] = GeometryBuilder::BuildBox("zero", "half");
+			renderable.AddIndices(indices);
+			renderable.AddVertices(vertices);
+			renderable.AddNormals(normals);
+			renderable.AddColors(colors);
+			renderable.AddUVs(uvs);
+
+			vector<float3> host_points;
+
+			for (auto& p : alp.GetPoints())
+			{
+				auto r = p.color.x;
+				auto g = p.color.y;
+				auto b = p.color.z;
+				auto a = 1.f;
+
+				renderable.AddInstanceColor(MiniMath::V4(r, g, b, a));
+				renderable.AddInstanceNormal(p.normal);
+
+				MiniMath::M4 model = MiniMath::M4::identity();
+				model.m[0][0] = 1.5f;
+				model.m[1][1] = 1.5f;
+				model.m[2][2] = 1.5f;
+				model = MiniMath::translate(model, p.position);
+				renderable.AddInstanceTransform(model);
+
+				host_points.push_back(make_float3(p.position.x, p.position.y, p.position.z));
+			}
+
+			alog("ALP %d points loaded\n", alp.GetPoints().size());
+
+			renderable.EnableInstancing(alp.GetPoints().size());
+			auto [x, y, z] = alp.GetAABBCenter();
+			f32 cx = x;
+			f32 cy = y;
+			f32 cz = z;
+
+			Feather.CreateEventCallback<KeyEvent>(entity, [cx, cy, cz](Entity entity, const KeyEvent& event) {
+				auto& renderable = Feather.GetRegistry().get<Renderable>(entity);
+				if (GLFW_KEY_M == event.keyCode)
+				{
+					renderable.NextDrawingMode();
+				}
+				else if (GLFW_KEY_1 == event.keyCode)
+				{
+					renderable.SetActiveShaderIndex(0);
+				}
+				else if (GLFW_KEY_2 == event.keyCode)
+				{
+					renderable.SetActiveShaderIndex(1);
+				}
+				else if (GLFW_KEY_PAGE_UP == event.keyCode)
+				{
+
+				}
+				else if (GLFW_KEY_PAGE_DOWN == event.keyCode)
+				{
+				}
+				else if (GLFW_KEY_R == event.keyCode)
+				{
+					auto entities = Feather.GetRegistry().view<CameraManipulatorTrackball>();
+					for (auto& entity : entities)
+					{
+						auto cameraManipulator = Feather.GetRegistry().get<CameraManipulatorTrackball>(entity);
+						auto camera = cameraManipulator.GetCamera();
+						camera->SetEye({ cx,cy,cz + cameraManipulator.GetRadius() });
+						camera->SetTarget({ cx,cy,cz });
+					}
+				}
+				});
+
+			t = Time::End(t, "Upload to GPU");
+
+			auto hashToFloat = [](uint32_t seed) -> float {
+				seed ^= seed >> 13;
+				seed *= 0x5bd1e995;
+				seed ^= seed >> 15;
+				return (seed & 0xFFFFFF) / static_cast<float>(0xFFFFFF);
+			};
+
+			auto pointLabels = cuMain(host_points, make_float3(x, y, z));
+			for (size_t i = 0; i < pointLabels.size(); i++)
+			{
+				auto label = pointLabels[i];
+				//if (3680830 != label)
+				//{
+				//	auto m = renderable.GetInstanceTransform(i);
+				//	m.at(0, 0) *= 0.125f;
+				//	m.at(1, 1) *= 0.125f;
+				//	m.at(2, 2) *= 0.125f;
+				//	renderable.SetInstanceTransform(i, m);
+				//	//renderable.SetInstanceColor(i, MiniMath::V4(1.0f, 1.0f, 1.0f, 0.0f));
+				//}
+				if (label != -1)
+				{
+					float r = hashToFloat(label * 3 + 0);
+					float g = hashToFloat(label * 3 + 1);
+					float b = hashToFloat(label * 3 + 2);
+
+					//if (index == 0)
+					//{
+					//	renderable->SetInstanceColor(i, MiniMath::V4(1.0f, 0.0f, 0.0f, 1.0f));
+					//}
+					//else
+					//{
+					renderable.SetInstanceColor(i, MiniMath::V4(r, g, b, 1.0f));
+					//}
+				}
+			}
+		}
+#pragma endregion
+
+#pragma region Load PLY and Convert to ALP format
+		{
+			auto t = Time::Now();
+
+			if (false == alp.Deserialize("../../res/3D/Compound_Partial.alp"))
+			{
+				PLYFormat ply;
+				ply.Deserialize("../../res/3D/Compound_Partial.ply");
+				//ply.SwapAxisYZ();
+
+				vector<PointPNC> points;
+				for (size_t i = 0; i < ply.GetPoints().size() / 3; i++)
+				{
+					auto px = ply.GetPoints()[i * 3];
+					auto py = ply.GetPoints()[i * 3 + 1];
+					auto pz = ply.GetPoints()[i * 3 + 2];
+
+					auto nx = ply.GetNormals()[i * 3];
+					auto ny = ply.GetNormals()[i * 3 + 1];
+					auto nz = ply.GetNormals()[i * 3 + 2];
+
+					if (false == ply.GetColors().empty())
+					{
+						if (ply.UseAlpha())
+						{
+							auto cx = ply.GetColors()[i * 4];
+							auto cy = ply.GetColors()[i * 4 + 1];
+							auto cz = ply.GetColors()[i * 4 + 2];
+							auto ca = ply.GetColors()[i * 4 + 3];
+
+							points.push_back({ {px, py, pz}, {nx, ny, nz}, {cx, cy, cz} });
+						}
+						else
+						{
+							auto cx = ply.GetColors()[i * 3];
+							auto cy = ply.GetColors()[i * 3 + 1];
+							auto cz = ply.GetColors()[i * 3 + 2];
+
+							points.push_back({ {px, py, pz}, {nx, ny, nz}, {cx, cy, cz} });
+						}
+					}
+					else
+					{
+						points.push_back({ {px, py, pz}, {nx, ny, nz}, {1.0f, 1.0f, 1.0f} });
+					}
+				}
+				alog("PLY %d points loaded\n", points.size());
+
+				alp.AddPoints(points);
+				alp.Serialize("../../res/3D/Compound_Partial.alp");
+			}
+
+			t = Time::End(t, "Loading Compound");
+
 			auto entity = Feather.CreateEntity("Input Point Cloud");
 			auto& renderable = Feather.CreateComponent<Renderable>(entity);
+
+			renderable.SetVisible(false);
 
 			renderable.Initialize(Renderable::GeometryMode::Triangles);
 			renderable.AddShader(Feather.CreateShader("Instancing", File("../../res/Shaders/Instancing.vs"), File("../../res/Shaders/Instancing.fs")));
@@ -461,112 +652,33 @@ int main(int argc, char** argv)
 			for (size_t i = 0; i < pointLabels.size(); i++)
 			{
 				auto label = pointLabels[i];
-				if (label != -1)
+				if (3680830 != label)
 				{
-					float r = hashToFloat(label * 3 + 0);
-					float g = hashToFloat(label * 3 + 1);
-					float b = hashToFloat(label * 3 + 2);
-
-					//if (index == 0)
-					//{
-					//	renderable->SetInstanceColor(i, MiniMath::V4(1.0f, 0.0f, 0.0f, 1.0f));
-					//}
-					//else
-					//{
-					renderable.SetInstanceColor(i, MiniMath::V4(r, g, b, 1.0f));
-					//}
+					auto m = renderable.GetInstanceTransform(i);
+					m.at(0, 0) *= 0.125f;
+					m.at(1, 1) *= 0.125f;
+					m.at(2, 2) *= 0.125f;
+					renderable.SetInstanceTransform(i, m);
+					//renderable.SetInstanceColor(i, MiniMath::V4(1.0f, 1.0f, 1.0f, 0.0f));
 				}
+				//if (label != -1)
+				//{
+				//	float r = hashToFloat(label * 3 + 0);
+				//	float g = hashToFloat(label * 3 + 1);
+				//	float b = hashToFloat(label * 3 + 2);
+
+				//	//if (index == 0)
+				//	//{
+				//	//	renderable->SetInstanceColor(i, MiniMath::V4(1.0f, 0.0f, 0.0f, 1.0f));
+				//	//}
+				//	//else
+				//	//{
+				//	renderable.SetInstanceColor(i, MiniMath::V4(r, g, b, 1.0f));
+				//	//}
+				//}
 
 				//auto& p = alp.GetPoints()[i];
 				//renderable->SetInstanceColor(i, MiniMath::V4(p.color.x, p.color.y, p.color.z, 1.0f));
-			}
-
-			{ // AABB
-				auto m = alp.GetAABBMin();
-				float x = get<0>(m);
-				float y = get<1>(m);
-				float z = get<2>(m);
-				auto M = alp.GetAABBMax();
-				float X = get<0>(M);
-				float Y = get<1>(M);
-				float Z = get<2>(M);
-
-				auto entity = Feather.CreateEntity("AABB");
-				auto& renderable = Feather.CreateComponent<Renderable>(entity);
-				renderable.Initialize(Renderable::GeometryMode::Lines);
-
-				renderable.AddShader(Feather.CreateShader("Line", File("../../res/Shaders/Line.vs"), File("../../res/Shaders/Line.fs")));
-
-				renderable.AddVertex({ x, y, z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-				renderable.AddVertex({ X, y, z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-				renderable.AddVertex({ X, y, z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-				renderable.AddVertex({ X, Y, z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-				renderable.AddVertex({ X, Y, z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-				renderable.AddVertex({ x, Y, z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-				renderable.AddVertex({ x, Y, z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-				renderable.AddVertex({ x, y, z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-
-				renderable.AddVertex({ x, y, Z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-				renderable.AddVertex({ X, y, Z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-				renderable.AddVertex({ X, y, Z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-				renderable.AddVertex({ X, Y, Z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-				renderable.AddVertex({ X, Y, Z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-				renderable.AddVertex({ x, Y, Z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-				renderable.AddVertex({ x, Y, Z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-				renderable.AddVertex({ x, y, Z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-
-				renderable.AddVertex({ x, y, z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-				renderable.AddVertex({ x, y, Z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-				renderable.AddVertex({ X, y, z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-				renderable.AddVertex({ X, y, Z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-				renderable.AddVertex({ X, Y, z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-				renderable.AddVertex({ X, Y, Z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-				renderable.AddVertex({ x, Y, z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-				renderable.AddVertex({ x, Y, Z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-			}
-
-			{ // Cache Area
-				auto [cx, cy, cz] = alp.GetAABBCenter();
-
-				float x = cx + (-10.0f);
-				float y = cy + (-15.0f);
-				float z = cz + (-20.0f);
-				float X = cx + (10.0f);
-				float Y = cy + (15.0f);
-				float Z = cz + (20.0f);
-
-				auto entity = Feather.CreateEntity("CacheAABB");
-				auto& renderable = Feather.CreateComponent<Renderable>(entity);
-				renderable.Initialize(Renderable::GeometryMode::Lines);
-
-				renderable.AddShader(Feather.CreateShader("Line", File("../../res/Shaders/Line.vs"), File("../../res/Shaders/Line.fs")));
-
-				renderable.AddVertex({ x, y, z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-				renderable.AddVertex({ X, y, z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-				renderable.AddVertex({ X, y, z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-				renderable.AddVertex({ X, Y, z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-				renderable.AddVertex({ X, Y, z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-				renderable.AddVertex({ x, Y, z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-				renderable.AddVertex({ x, Y, z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-				renderable.AddVertex({ x, y, z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-
-				renderable.AddVertex({ x, y, Z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-				renderable.AddVertex({ X, y, Z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-				renderable.AddVertex({ X, y, Z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-				renderable.AddVertex({ X, Y, Z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-				renderable.AddVertex({ X, Y, Z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-				renderable.AddVertex({ x, Y, Z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-				renderable.AddVertex({ x, Y, Z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-				renderable.AddVertex({ x, y, Z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-
-				renderable.AddVertex({ x, y, z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-				renderable.AddVertex({ x, y, Z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-				renderable.AddVertex({ X, y, z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-				renderable.AddVertex({ X, y, Z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-				renderable.AddVertex({ X, Y, z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-				renderable.AddVertex({ X, Y, Z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-				renderable.AddVertex({ x, Y, z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-				renderable.AddVertex({ x, Y, Z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
 			}
 		}
 #pragma endregion
