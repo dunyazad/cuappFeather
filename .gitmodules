@@ -11,3 +11,7 @@
 [submodule "External/entt"]
 	path = External/entt
 	url = https://github.com/skypjack/entt.git
+[submodule "External/Feather"]
+	path = External/Feather
+	url = https://github.com/dunyazad/Feather.git
+	branch = ENTT
