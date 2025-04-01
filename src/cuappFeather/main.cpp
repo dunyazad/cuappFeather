@@ -298,10 +298,10 @@ int main(int argc, char** argv)
 		{
 			auto t = Time::Now();
 
-			if (false == alp.Deserialize("../../res/3D/ZeroCrossingPoints_Partial.alp"))
+			if (false == alp.Deserialize("../../res/3D/Compound_Partial.alp"))
 			{
 				PLYFormat ply;
-				ply.Deserialize("../../res/3D/ZeroCrossingPoints_Partial.ply");
+				ply.Deserialize("../../res/3D/Compound_Partial.ply");
 				//ply.SwapAxisYZ();
 
 				vector<PointPNC> points;
@@ -343,7 +343,7 @@ int main(int argc, char** argv)
 				alog("PLY %d points loaded\n", points.size());
 
 				alp.AddPoints(points);
-				alp.Serialize("../../res/3D/ZeroCrossingPoints_Partial.alp");
+				alp.Serialize("../../res/3D/Compound_Partial.alp");
 			}
 
 			t = Time::End(t, "Loading Compound");
@@ -558,7 +558,7 @@ int main(int argc, char** argv)
 			if (false == alp.Deserialize("../../res/3D/ZeroCrossingPoints_Partial.alp"))
 			{
 				PLYFormat ply;
-				ply.Deserialize("../../res/3D/ZeroCrossingPoints_Partial.ply");
+				ply.Deserialize("../../res/3D/Compound_Partial.ply");
 				//ply.SwapAxisYZ();
 
 				vector<PointPNC> points;
@@ -600,7 +600,7 @@ int main(int argc, char** argv)
 				alog("PLY %d points loaded\n", points.size());
 
 				alp.AddPoints(points);
-				alp.Serialize("../../res/3D/ZeroCrossingPoints_Partial.alp");
+				alp.Serialize("../../res/3D/Compound_Partial.alp");
 			}
 
 			t = Time::End(t, "Loading Compound");
