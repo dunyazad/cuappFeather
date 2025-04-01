@@ -30,14 +30,8 @@ void TestCUDA()
 
 namespace Clustering
 {
-	struct Voxel
-	{
-		//float3 position;
-		unsigned int label;
-	};
-
 	__global__ void Kernel_ClearVoxels(
-		Voxel* d_voxels,
+		unsigned int* d_voxels,
 		unsigned int numberOfVoxels,
 		dim3 volumeDimensions,
 		float voxelSize,
@@ -48,11 +42,11 @@ namespace Clustering
 		if (threadid >= volumeDimensions.x * volumeDimensions.y * volumeDimensions.z) return;
 
 		//d_voxels[threadid].position = make_float3(FLT_MAX, FLT_MAX, FLT_MAX);
-		d_voxels[threadid].label = 0;
+		d_voxels[threadid] = 0;
 	}
 
 	void ClearVoxels(
-		Voxel* d_voxels,
+		unsigned int* d_voxels,
 		unsigned int numberOfVoxels,
 		dim3 volumeDimensions,
 		float voxelSize,
@@ -72,7 +66,7 @@ namespace Clustering
 	__global__ void Kernel_OccupyVoxels(
 		float* d_points,
 		unsigned int numberOfPoints,
-		Voxel* d_voxels,
+		unsigned int* d_voxels,
 		unsigned int numberOfVoxels,
 		dim3 volumeDimensions,
 		float voxelSize,
@@ -109,7 +103,7 @@ namespace Clustering
 		//voxel.position.x = volumeMin.x + ix * voxelSize;
 		//voxel.position.y = volumeMin.y + iy * voxelSize;
 		//voxel.position.z = volumeMin.z + iz * voxelSize;
-		voxel.label = volumeIndex;
+		voxel = volumeIndex;
 
 		//alog("%f, %f, %f\n", voxel.position.x, voxel.position.y, voxel.position.z);
 
@@ -125,7 +119,7 @@ namespace Clustering
 	void OccupyVoxels(
 		float* d_points,
 		unsigned int numberOfPoints,
-		Voxel* d_voxels,
+		unsigned int* d_voxels,
 		unsigned int numberOfVoxels,
 		dim3 volumeDimensions,
 		float voxelSize,
@@ -162,7 +156,7 @@ namespace Clustering
 	__global__ void Kernel_GetLabels(
 		float* d_points,
 		unsigned int numberOfPoints,
-		Voxel* d_voxels,
+		unsigned int* d_voxels,
 		unsigned int numberOfVoxels,
 		dim3 volumeDimensions,
 		float voxelSize,
@@ -193,13 +187,13 @@ namespace Clustering
 		unsigned int volumeIndex = iz * volumeDimensions.x * volumeDimensions.y + iy * volumeDimensions.x + ix;
 		auto& voxel = d_voxels[volumeIndex];
 
-		d_labels[threadid] = voxel.label;
+		d_labels[threadid] = voxel;
 	}
 
 	std::vector<unsigned int> GetLabels(
 		float* d_points,
 		unsigned int numberOfPoints,
-		Voxel* d_voxels,
+		unsigned int* d_voxels,
 		unsigned int numberOfVoxels,
 		dim3 volumeDimensions,
 		float voxelSize,
@@ -237,71 +231,6 @@ namespace Clustering
 		return result;
 	}
 
-	void VisualizeVoxels(
-		Voxel* d_voxels,
-		unsigned int numberOfVoxels,
-		dim3 volumeDimensions,
-		float voxelSize,
-		float3 volumeMin)
-	{
-		nvtxRangePush("VisualizeVoxels");
-
-		Voxel* h_voxels = new Voxel[numberOfVoxels];
-		cudaMemcpy(h_voxels, d_voxels, sizeof(Voxel) * numberOfVoxels, cudaMemcpyDeviceToHost);
-
-		std::unordered_map<unsigned int, std::tuple<unsigned char, unsigned char, unsigned char>> labelToColor;
-
-		std::unordered_map<unsigned int, unsigned int> labelHistogram;
-
-		for (size_t i = 0; i < numberOfVoxels; i++)
-		{
-			auto& voxel = h_voxels[i];
-
-			//if (voxel.position.x != FLT_MAX) // Only visualize occupied voxels
-			if (0 != voxel.label) // Only visualize occupied voxels
-			{
-				unsigned int label = voxel.label;
-
-				// Assign a unique color per label using a hash function
-				if (labelToColor.find(label) == labelToColor.end())
-				{
-					unsigned char r = (label * 53) % 256;
-					unsigned char g = (label * 97) % 256;
-					unsigned char b = (label * 151) % 256;
-					labelToColor[label] = std::make_tuple(r, g, b);
-				}
-
-				// Get the assigned color
-				auto [r, g, b] = labelToColor[label];
-
-				// Visualize the voxel with the computed color
-	/*               VD::AddCube("labeled voxels", { voxel.position.x, voxel.position.y, voxel.position.z },
-					   0.05f, { r, g, b, 255 });*/
-
-				if (0 == labelHistogram.count(voxel.label))
-				{
-					labelHistogram[voxel.label] = 1;
-				}
-				else
-				{
-					labelHistogram[voxel.label] += 1;
-				}
-			}
-		}
-
-		int i = 0;
-		for (auto& [label, count] : labelHistogram)
-		{
-			alog("[%4d] voxel label - %16d : count - %8d\n", i++, label, count);
-		}
-		alog("\n");
-
-		delete[] h_voxels;
-
-		cudaDeviceSynchronize();
-		nvtxRangePop();
-	}
-
 	struct ClusteringCacheInfo
 	{
 		float voxelSize = 0.1f;
@@ -331,7 +260,7 @@ namespace Clustering
 		std::vector<unsigned int> DownloadLabels();
 
 		void ConnectedComponentLabeling(
-			Voxel* d_voxels,
+			unsigned int* d_voxels,
 			uint3* occupiedVoxelIndices,
 			unsigned int numberOfOccupiedVoxelIndices,
 			dim3 volumeDimensions);
@@ -346,7 +275,7 @@ namespace Clustering
 		float* d_points = nullptr;
 		unsigned int numberOfPoints = 0;
 
-		Clustering::Voxel* d_voxels = nullptr;
+		unsigned int* d_voxels = nullptr;
 
 		unsigned int* occupiedPointIndices = nullptr;
 		unsigned int* numberOfOccupiedPointIndices = nullptr;
@@ -475,7 +404,7 @@ namespace Clustering
 	void ClusteringCache::AllocateDeviceMemory(size_t numPoints)
 	{
 		cudaMalloc(&d_points, sizeof(float3) * numPoints);
-		cudaMalloc(&d_voxels, sizeof(Clustering::Voxel) * info.numberOfVoxels);
+		cudaMalloc(&d_voxels, sizeof(unsigned int) * info.numberOfVoxels);
 
 		cudaMalloc(&occupiedPointIndices, sizeof(unsigned int) * numPoints);
 		cudaMalloc(&numberOfOccupiedPointIndices, sizeof(unsigned int));
@@ -490,47 +419,30 @@ namespace Clustering
 		if (numberOfOccupiedPointIndices) cudaFree(numberOfOccupiedPointIndices);
 	}
 
-	__device__ __forceinline__ unsigned int FindRoot(Voxel* voxels, unsigned int idx) {
+	__device__ __forceinline__ unsigned int FindRoot(unsigned int* voxels, unsigned int idx) {
 		while (true) {
-			unsigned int parent = voxels[idx].label;
-			unsigned int grand = voxels[parent].label;
+			unsigned int parent = voxels[idx];
+			unsigned int grand = voxels[parent];
 			if (parent == idx) break;
-			if (parent != grand) voxels[idx].label = grand;
+			if (parent != grand) voxels[idx] = grand;
 			idx = parent;
 		}
 		return idx;
 	}
 
-	//__device__ __forceinline__ void Union(Voxel* voxels, unsigned int a, unsigned int b) {
-	//	unsigned int rootA = FindRoot(voxels, a);
-	//	unsigned int rootB = FindRoot(voxels, b);
-	//	if (rootA != rootB) {
-	//		if (rootA < rootB)
-	//			atomicMin(&voxels[rootB].label, rootA);
-	//		else
-	//			atomicMin(&voxels[rootA].label, rootB);
-	//	}
-	//}
-
-	__device__ __forceinline__ void Union(Voxel* voxels, unsigned int a, unsigned int b) {
+	__device__ __forceinline__ void Union(unsigned int* voxels, unsigned int a, unsigned int b) {
 		unsigned int rootA = FindRoot(voxels, a);
 		unsigned int rootB = FindRoot(voxels, b);
 		if (rootA != rootB) {
 			if (rootA < rootB)
-			{
-				voxels[rootB].label = voxels[rootB].label < rootA ? voxels[rootB].label : rootA;
-			}
-			//atomicMin(&voxels[rootB].label, rootA);
+				atomicMin(&voxels[rootB], rootA);
 			else
-			{
-				voxels[rootA].label = voxels[rootA].label < rootB ? voxels[rootA].label : rootB;
-			}
-			//atomicMin(&voxels[rootA].label, rootB);
+				atomicMin(&voxels[rootA], rootB);
 		}
 	}
 
 	__global__ void Kernel_InterBlockMerge26Way(
-		Voxel* voxels,
+		unsigned int* voxels,
 		uint3* occupiedIndices,
 		unsigned int numOccupied,
 		dim3 dims)
@@ -541,7 +453,7 @@ namespace Clustering
 		uint3 idx = occupiedIndices[tid];
 		unsigned int center = idx.z * dims.y * dims.x + idx.y * dims.x + idx.x;
 		//if (voxels[center].position.x == FLT_MAX) return;
-		if (0 == voxels[center].label) return;
+		if (0 == voxels[center]) return;
 
 		for (int dz = -1; dz <= 1; dz++) {
 			int nz = idx.z + dz;
@@ -556,7 +468,7 @@ namespace Clustering
 
 					unsigned int neighbor = nz * dims.y * dims.x + ny * dims.x + nx;
 					//if (voxels[neighbor].position.x != FLT_MAX) {
-					if (0 != voxels[neighbor].label) {
+					if (0 != voxels[neighbor]) {
 						Union(voxels, center, neighbor);
 					}
 				}
@@ -565,7 +477,7 @@ namespace Clustering
 	}
 
 	__global__ void Kernel_InterBlockMerge6Way(
-		Voxel* voxels,
+		unsigned int* voxels,
 		uint3* occupiedIndices,
 		unsigned int numOccupied,
 		dim3 dims)
@@ -576,7 +488,7 @@ namespace Clustering
 		uint3 idx = occupiedIndices[tid];
 		unsigned int center = idx.z * dims.y * dims.x + idx.y * dims.x + idx.x;
 		//if (voxels[center].position.x == FLT_MAX) return;
-		if (0 == voxels[center].label) return;
+		if (0 == voxels[center]) return;
 
 		const int3 neighbors[6] = {
 		{  1,  0,  0 },
@@ -596,94 +508,24 @@ namespace Clustering
 				continue;
 
 			unsigned int neighbor = nz * dims.y * dims.x + ny * dims.x + nx;
-			if (0 != voxels[neighbor].label) {
+			if (0 != voxels[neighbor]) {
 				Union(voxels, center, neighbor);
 			}
 		}
 	}
 
-	__global__ void Kernel_InterBlockMergeP(
-		Voxel* voxels,
-		uint3* occupiedIndices,
-		unsigned int numOccupied,
-		dim3 dims)
-	{
-		unsigned int tid = blockIdx.x * blockDim.x + threadIdx.x;
-		if (tid >= numOccupied) return;
-
-		uint3 idx = occupiedIndices[tid];
-		unsigned int center = idx.z * dims.y * dims.x + idx.y * dims.x + idx.x;
-		//if (voxels[center].position.x == FLT_MAX) return;
-		if (0 == voxels[center].label) return;
-
-		for (int dz = 0; dz <= 1; dz++) {
-			int nz = idx.z + dz;
-			if (nz < 0 || nz >= dims.z) continue;
-			for (int dy = 0; dy <= 1; dy++) {
-				int ny = idx.y + dy;
-				if (ny < 0 || ny >= dims.y) continue;
-				for (int dx = 0; dx <= 1; dx++) {
-					int nx = idx.x + dx;
-					if (nx < 0 || nx >= dims.x) continue;
-					if (dx == 0 && dy == 0 && dz == 0) continue;
-
-					unsigned int neighbor = nz * dims.y * dims.x + ny * dims.x + nx;
-					//if (voxels[neighbor].position.x != FLT_MAX) {
-					if (0 != voxels[neighbor].label) {
-						Union(voxels, center, neighbor);
-					}
-				}
-			}
-		}
-	}
-
-	__global__ void Kernel_InterBlockMergeN(
-		Voxel* voxels,
-		uint3* occupiedIndices,
-		unsigned int numOccupied,
-		dim3 dims)
-	{
-		unsigned int tid = blockIdx.x * blockDim.x + threadIdx.x;
-		if (tid >= numOccupied) return;
-
-		uint3 idx = occupiedIndices[tid];
-		unsigned int center = idx.z * dims.y * dims.x + idx.y * dims.x + idx.x;
-		//if (voxels[center].position.x == FLT_MAX) return;
-		if (0 == voxels[center].label) return;
-
-		for (int dz = -1; dz <= 0; dz++) {
-			int nz = idx.z + dz;
-			if (nz < 0 || nz >= dims.z) continue;
-			for (int dy = -1; dy <= 0; dy++) {
-				int ny = idx.y + dy;
-				if (ny < 0 || ny >= dims.y) continue;
-				for (int dx = -1; dx <= 0; dx++) {
-					int nx = idx.x + dx;
-					if (nx < 0 || nx >= dims.x) continue;
-					if (dx == 0 && dy == 0 && dz == 0) continue;
-
-					unsigned int neighbor = nz * dims.y * dims.x + ny * dims.x + nx;
-					//if (voxels[neighbor].position.x != FLT_MAX) {
-					if (0 != voxels[neighbor].label) {
-						Union(voxels, center, neighbor);
-					}
-				}
-			}
-		}
-	}
-
-	__global__ void Kernel_CompressLabels(Voxel* voxels, unsigned int N) {
+	__global__ void Kernel_CompressLabels(unsigned int* voxels, unsigned int N) {
 		unsigned int tid = blockIdx.x * blockDim.x + threadIdx.x;
 		if (tid >= N) return;
 
 		//if (voxels[tid].position.x != FLT_MAX) {
-		if (0 != voxels[tid].label) {
-			voxels[tid].label = FindRoot(voxels, tid);
+		if (0 != voxels[tid]) {
+			voxels[tid] = FindRoot(voxels, tid);
 		}
 	}
 
 	void ClusteringCache::ConnectedComponentLabeling(
-		Voxel* d_voxels,
+		unsigned int* d_voxels,
 		uint3* occupiedVoxelIndices,
 		unsigned int numberOfOccupiedVoxelIndices,
 		dim3 volumeDimensions)
