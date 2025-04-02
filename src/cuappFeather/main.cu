@@ -388,10 +388,10 @@ namespace Clustering
 }
 
 
-std::vector<unsigned int> cuMain(const std::vector<float3>& host_points, const std::vector<float3>& host_normals, const std::vector<float3>& host_colors, float3 center)
+std::vector<unsigned int> cuMain(float voxelSize, const std::vector<float3>& host_points, const std::vector<float3>& host_normals, const std::vector<float3>& host_colors, float3 center)
 {
 	Clustering::ClusteringCacheInfo info;
-	info.voxelSize = 0.1f;
+	info.voxelSize = voxelSize;
 	info.cacheDimensions = dim3(200, 300, 400);
 	//info.cacheDimensions = dim3(400, 400, 400);
 	info.numberOfVoxels = info.cacheDimensions.x * info.cacheDimensions.y * info.cacheDimensions.z;

@@ -15,6 +15,24 @@ using namespace std;
 #include <cuda_runtime.h>
 #include <device_launch_parameters.h>
 
+//const string resource_file_name_ply = "../../res/3D/Compound_Partial.ply";
+//const string resource_file_name_alp = "../../res/3D/Compound_Partial.alp";
+
+//const string resource_file_name_ply = "../../res/3D/ZeroCrossingPoints_Partial.ply";
+//const string resource_file_name_alp = "../../res/3D/ZeroCrossingPoints_Partial.alp";
+
+//const string resource_file_name_ply = "../../res/3D/Teeth.ply";
+//const string resource_file_name_alp = "../../res/3D/Teeth.alp";
+
+//const string resource_file_name_ply = "../../res/3D/Normal.ply";
+//const string resource_file_name_alp = "../../res/3D/Normal.alp";
+
+const string resource_file_name = "ZeroCrossingPoints_Partial";
+const string resource_file_name_ply = "../../res/3D/" + resource_file_name + ".ply";
+const string resource_file_name_alp = "../../res/3D/" + resource_file_name + ".alp";
+
+const f32 voxelSize = 0.1f;
+
 int main(int argc, char** argv)
 {
 	cout << "AppFeather" << endl;
@@ -102,10 +120,10 @@ int main(int argc, char** argv)
 		{
 			auto t = Time::Now();
 
-			if (false == alp.Deserialize("../../res/3D/Compound_Partial.alp"))
+			if (false == alp.Deserialize(resource_file_name_alp))
 			{
 				PLYFormat ply;
-				ply.Deserialize("../../res/3D/Compound_Partial.ply");
+				ply.Deserialize(resource_file_name_ply);
 				//ply.SwapAxisYZ();
 
 				vector<PointPNC> points;
@@ -147,7 +165,7 @@ int main(int argc, char** argv)
 				alog("PLY %llu points loaded\n", points.size());
 
 				alp.AddPoints(points);
-				alp.Serialize("../../res/3D/Compound_Partial.alp");
+				alp.Serialize(resource_file_name_alp);
 			}
 
 			t = Time::End(t, "Loading Compound");
@@ -564,10 +582,12 @@ int main(int argc, char** argv)
 		{
 			auto t = Time::Now();
 
-			if (false == alp.Deserialize("../../res/3D/Compound_Partial.alp"))
+			if (false == alp.Deserialize(resource_file_name_alp))
 			{
+				bool foundZero = false;
+
 				PLYFormat ply;
-				ply.Deserialize("../../res/3D/Compound_Partial.ply");
+				ply.Deserialize(resource_file_name_ply);
 				//ply.SwapAxisYZ();
 
 				vector<PointPNC> points;
@@ -577,7 +597,17 @@ int main(int argc, char** argv)
 					auto py = ply.GetPoints()[i * 3 + 1];
 					auto pz = ply.GetPoints()[i * 3 + 2];
 
-					if (0 == px && 0 == py && 0 == pz) continue;
+					if (0 == px && 0 == py && 0 == pz)
+					{
+						if (false == foundZero)
+						{
+							foundZero = true;
+						}
+						else
+						{
+							continue;
+						}
+					}
 
 					auto nx = ply.GetNormals()[i * 3];
 					auto ny = ply.GetNormals()[i * 3 + 1];
@@ -611,7 +641,7 @@ int main(int argc, char** argv)
 				alog("PLY %llu points loaded\n", points.size());
 
 				alp.AddPoints(points);
-				alp.Serialize("../../res/3D/Compound_Partial.alp");
+				alp.Serialize(resource_file_name_alp);
 			}
 
 			t = Time::End(t, "Loading Compound");
@@ -709,7 +739,7 @@ int main(int argc, char** argv)
 				return (seed & 0xFFFFFF) / static_cast<float>(0xFFFFFF);
 			};
 
-			auto pointLabels = cuMain(host_points, host_normals, host_colors, make_float3(x, y, z));
+			auto pointLabels = cuMain(voxelSize, host_points, host_normals, host_colors, make_float3(x, y, z));
 			for (size_t i = 0; i < pointLabels.size(); i++)
 			{
 				auto label = pointLabels[i];
@@ -770,12 +800,12 @@ int main(int argc, char** argv)
 			{ // Cache Area
 				auto [cx, cy, cz] = alp.GetAABBCenter();
 
-				float x = cx + (-10.0f);
-				float y = cy + (-15.0f);
-				float z = cz + (-20.0f);
-				float X = cx + (10.0f);
-				float Y = cy + (15.0f);
-				float Z = cz + (20.0f);
+				float x = cx + (-100.0f) * voxelSize;
+				float y = cy + (-150.0f) * voxelSize;
+				float z = cz + (-200.0f) * voxelSize;
+				float X = cx + (100.0f) * voxelSize;
+				float Y = cy + (150.0f) * voxelSize;
+				float Z = cz + (200.0f) * voxelSize;
 
 				auto entity = Feather.CreateEntity("CacheAABB");
 				auto& renderable = Feather.CreateComponent<Renderable>(entity);
@@ -817,10 +847,10 @@ int main(int argc, char** argv)
 		{
 			auto t = Time::Now();
 
-			if (false == alp.Deserialize("../../res/3D/Compound_Partial.alp"))
+			if (false == alp.Deserialize(resource_file_name_alp))
 			{
 				PLYFormat ply;
-				ply.Deserialize("../../res/3D/Compound_Partial.ply");
+				ply.Deserialize(resource_file_name_ply);
 				//ply.SwapAxisYZ();
 
 				vector<PointPNC> points;
@@ -862,7 +892,7 @@ int main(int argc, char** argv)
 				alog("PLY %llu points loaded\n", points.size());
 
 				alp.AddPoints(points);
-				alp.Serialize("../../res/3D/Compound_Partial.alp");
+				alp.Serialize(resource_file_name_alp);
 			}
 
 			t = Time::End(t, "Loading Compound");
@@ -996,7 +1026,7 @@ int main(int argc, char** argv)
 				return (seed & 0xFFFFFF) / static_cast<float>(0xFFFFFF);
 			};
 
-			auto pointLabels = cuMain(host_points, host_normals, host_colors, make_float3(x,y,z));
+			auto pointLabels = cuMain(voxelSize, host_points, host_normals, host_colors, make_float3(x,y,z));
 
 			std::unordered_map<unsigned int, unsigned int> labelHistogram;
 
