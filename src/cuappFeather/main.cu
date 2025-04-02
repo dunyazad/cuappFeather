@@ -1,16 +1,5 @@
 #include "main.cuh"
 
-__global__ void hello_kernel() {
-	printf("Hello from CUDA kernel!\\n");
-}
-
-void TestCUDA()
-{
-	hello_kernel << <1, 1 >> > ();
-	cudaDeviceSynchronize();
-	std::cout << "CUDA finished\\n";
-}
-
 #include <nvtx3/nvToolsExt.h>
 
 #include <cuda_runtime.h>
@@ -26,7 +15,6 @@ namespace Clustering
 {
 	struct Voxel
 	{
-		//float3 position;
 		unsigned int label;
 	};
 
@@ -171,22 +159,13 @@ namespace Clustering
 		if (ix >= info.cacheDimensions.x || iy >= info.cacheDimensions.y || iz >= info.cacheDimensions.z) return;
 
 		unsigned int cacheIndex = iz * info.cacheDimensions.x * info.cacheDimensions.y + iy * info.cacheDimensions.x + ix;
-		auto& voxel = info.voxels[cacheIndex];
-
-		//voxel.position.x = cacheMin.x + ix * voxelSize;
-		//voxel.position.y = cacheMin.y + iy * voxelSize;
-		//voxel.position.z = cacheMin.z + iz * voxelSize;
-		voxel.label = cacheIndex;
-
-		//alog("%f, %f, %f\n", voxel.position.x, voxel.position.y, voxel.position.z);
+		info.voxels[cacheIndex].label = cacheIndex;
 
 		auto voxelIndex = atomicAdd(info.numberOfOccupiedVoxelIndices, 1);
 		info.occupiedVoxelIndices[voxelIndex] = make_uint3(ix, iy, iz);
 
 		auto pointIndex = atomicAdd(numberOfOccupiedPointIndices, 1);
 		occupiedPointIndices[pointIndex] = threadid;
-
-		//alog("%d\n", index);
 	}
 
 	void ClusteringCache::OccupyVoxels()
@@ -355,7 +334,6 @@ namespace Clustering
 					if (dx == 0 && dy == 0 && zOffset == 0) continue;
 
 					unsigned int neighbor = nz * info.cacheDimensions.y * info.cacheDimensions.x + ny * info.cacheDimensions.x + nx;
-					//if (voxels[neighbor].position.x != FLT_MAX) {
 					if (0 != info.voxels[neighbor].label) {
 						Union(info.voxels, center, neighbor);
 					}

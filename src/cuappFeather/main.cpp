@@ -12,8 +12,6 @@ using namespace std;
 
 int main(int argc, char** argv)
 {
-	TestCUDA();
-
 	cout << "AppFeather" << endl;
 
 	Feather.Initialize(1920, 1080);
