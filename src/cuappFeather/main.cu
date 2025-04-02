@@ -334,156 +334,43 @@ namespace Clustering
 		}
 	}
 
-	__global__ void Kernel_InterBlockMerge26Way(
-		Voxel* voxels,
-		uint3* occupiedIndices,
-		unsigned int numOccupied,
-		dim3 dims)
+	__global__ void Kernel_InterBlockMerge26Way(ClusteringCacheInfo info)
 	{
-		unsigned int tid = blockIdx.x * blockDim.x + threadIdx.x;
-		if (tid >= numOccupied) return;
+		unsigned int threadid = blockIdx.x * blockDim.x + threadIdx.x;
+		if (threadid >= *info.numberOfOccupiedVoxelIndices) return;
 
-		uint3 idx = occupiedIndices[tid];
-		unsigned int center = idx.z * dims.y * dims.x + idx.y * dims.x + idx.x;
-		//if (voxels[center].position.x == FLT_MAX) return;
-		if (0 == voxels[center].label) return;
+		uint3 idx = info.occupiedVoxelIndices[threadid];
+		unsigned int center = idx.z * info.cacheDimensions.y * info.cacheDimensions.x + idx.y * info.cacheDimensions.x + idx.x;
+		if (0 == info.voxels[center].label) return;
 
-		for (int dz = -1; dz <= 1; dz++) {
-			int nz = idx.z + dz;
-			if (nz < 0 || nz >= dims.z) continue;
+		for (int zOffset = -1; zOffset <= 1; zOffset++) {
+			int nz = idx.z + zOffset;
+			if (nz < 0 || nz >= info.cacheDimensions.z) continue;
 			for (int dy = -1; dy <= 1; dy++) {
 				int ny = idx.y + dy;
-				if (ny < 0 || ny >= dims.y) continue;
+				if (ny < 0 || ny >= info.cacheDimensions.y) continue;
 				for (int dx = -1; dx <= 1; dx++) {
 					int nx = idx.x + dx;
-					if (nx < 0 || nx >= dims.x) continue;
-					if (dx == 0 && dy == 0 && dz == 0) continue;
+					if (nx < 0 || nx >= info.cacheDimensions.x) continue;
+					if (dx == 0 && dy == 0 && zOffset == 0) continue;
 
-					unsigned int neighbor = nz * dims.y * dims.x + ny * dims.x + nx;
+					unsigned int neighbor = nz * info.cacheDimensions.y * info.cacheDimensions.x + ny * info.cacheDimensions.x + nx;
 					//if (voxels[neighbor].position.x != FLT_MAX) {
-					if (0 != voxels[neighbor].label) {
-						Union(voxels, center, neighbor);
+					if (0 != info.voxels[neighbor].label) {
+						Union(info.voxels, center, neighbor);
 					}
 				}
 			}
 		}
 	}
 
-	__global__ void Kernel_InterBlockMerge6Way(
-		Voxel* voxels,
-		uint3* occupiedIndices,
-		unsigned int numOccupied,
-		dim3 dims)
+	__global__ void Kernel_CompressLabels(ClusteringCacheInfo info)
 	{
-		unsigned int tid = blockIdx.x * blockDim.x + threadIdx.x;
-		if (tid >= numOccupied) return;
+		unsigned int threadid = blockIdx.x * blockDim.x + threadIdx.x;
+		if (threadid >= info.numberOfVoxels) return;
 
-		uint3 idx = occupiedIndices[tid];
-		unsigned int center = idx.z * dims.y * dims.x + idx.y * dims.x + idx.x;
-		//if (voxels[center].position.x == FLT_MAX) return;
-		if (0 == voxels[center].label) return;
-
-		const int3 neighbors[6] = {
-		{  1,  0,  0 },
-		{ -1,  0,  0 },
-		{  0,  1,  0 },
-		{  0, -1,  0 },
-		{  0,  0,  1 },
-		{  0,  0, -1 }
-		};
-
-		for (int i = 0; i < 6; ++i) {
-			int nx = idx.x + neighbors[i].x;
-			int ny = idx.y + neighbors[i].y;
-			int nz = idx.z + neighbors[i].z;
-
-			if (nx < 0 || ny < 0 || nz < 0 || nx >= dims.x || ny >= dims.y || nz >= dims.z)
-				continue;
-
-			unsigned int neighbor = nz * dims.y * dims.x + ny * dims.x + nx;
-			if (0 != voxels[neighbor].label) {
-				Union(voxels, center, neighbor);
-			}
-		}
-	}
-
-	__global__ void Kernel_InterBlockMergeP(
-		Voxel* voxels,
-		uint3* occupiedIndices,
-		unsigned int numOccupied,
-		dim3 dims)
-	{
-		unsigned int tid = blockIdx.x * blockDim.x + threadIdx.x;
-		if (tid >= numOccupied) return;
-
-		uint3 idx = occupiedIndices[tid];
-		unsigned int center = idx.z * dims.y * dims.x + idx.y * dims.x + idx.x;
-		//if (voxels[center].position.x == FLT_MAX) return;
-		if (0 == voxels[center].label) return;
-
-		for (int dz = 0; dz <= 1; dz++) {
-			int nz = idx.z + dz;
-			if (nz < 0 || nz >= dims.z) continue;
-			for (int dy = 0; dy <= 1; dy++) {
-				int ny = idx.y + dy;
-				if (ny < 0 || ny >= dims.y) continue;
-				for (int dx = 0; dx <= 1; dx++) {
-					int nx = idx.x + dx;
-					if (nx < 0 || nx >= dims.x) continue;
-					if (dx == 0 && dy == 0 && dz == 0) continue;
-
-					unsigned int neighbor = nz * dims.y * dims.x + ny * dims.x + nx;
-					//if (voxels[neighbor].position.x != FLT_MAX) {
-					if (0 != voxels[neighbor].label) {
-						Union(voxels, center, neighbor);
-					}
-				}
-			}
-		}
-	}
-
-	__global__ void Kernel_InterBlockMergeN(
-		Voxel* voxels,
-		uint3* occupiedIndices,
-		unsigned int numOccupied,
-		dim3 dims)
-	{
-		unsigned int tid = blockIdx.x * blockDim.x + threadIdx.x;
-		if (tid >= numOccupied) return;
-
-		uint3 idx = occupiedIndices[tid];
-		unsigned int center = idx.z * dims.y * dims.x + idx.y * dims.x + idx.x;
-		//if (voxels[center].position.x == FLT_MAX) return;
-		if (0 == voxels[center].label) return;
-
-		for (int dz = -1; dz <= 0; dz++) {
-			int nz = idx.z + dz;
-			if (nz < 0 || nz >= dims.z) continue;
-			for (int dy = -1; dy <= 0; dy++) {
-				int ny = idx.y + dy;
-				if (ny < 0 || ny >= dims.y) continue;
-				for (int dx = -1; dx <= 0; dx++) {
-					int nx = idx.x + dx;
-					if (nx < 0 || nx >= dims.x) continue;
-					if (dx == 0 && dy == 0 && dz == 0) continue;
-
-					unsigned int neighbor = nz * dims.y * dims.x + ny * dims.x + nx;
-					//if (voxels[neighbor].position.x != FLT_MAX) {
-					if (0 != voxels[neighbor].label) {
-						Union(voxels, center, neighbor);
-					}
-				}
-			}
-		}
-	}
-
-	__global__ void Kernel_CompressLabels(Voxel* voxels, unsigned int N) {
-		unsigned int tid = blockIdx.x * blockDim.x + threadIdx.x;
-		if (tid >= N) return;
-
-		//if (voxels[tid].position.x != FLT_MAX) {
-		if (0 != voxels[tid].label) {
-			voxels[tid].label = FindRoot(voxels, tid);
+		if (0 != info.voxels[threadid].label) {
+			info.voxels[threadid].label = FindRoot(info.voxels, threadid);
 		}
 	}
 
@@ -498,10 +385,10 @@ namespace Clustering
 		unsigned int gridVoxels = (totalVoxels + blockSize - 1) / blockSize;
 		unsigned int gridOccupied = (numberOfOccupiedVoxelIndices + blockSize - 1) / blockSize;
 
-		Kernel_InterBlockMerge26Way << <gridOccupied, blockSize >> > (d_voxels, occupiedVoxelIndices, numberOfOccupiedVoxelIndices, volumeDimensions);
+		Kernel_InterBlockMerge26Way << <gridOccupied, blockSize >> > (info);
 		cudaDeviceSynchronize();
 
-		Kernel_CompressLabels << <gridVoxels, blockSize >> > (d_voxels, totalVoxels);
+		Kernel_CompressLabels << <gridVoxels, blockSize >> > (info);
 		cudaDeviceSynchronize();
 	}
 }
