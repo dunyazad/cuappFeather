@@ -27,7 +27,7 @@ using namespace std;
 //const string resource_file_name_ply = "../../res/3D/Normal.ply";
 //const string resource_file_name_alp = "../../res/3D/Normal.alp";
 
-const string resource_file_name = "ZeroCrossingPoints_Partial";
+const string resource_file_name = "Compound_Partial";
 const string resource_file_name_ply = "../../res/3D/" + resource_file_name + ".ply";
 const string resource_file_name_alp = "../../res/3D/" + resource_file_name + ".alp";
 
@@ -58,9 +58,9 @@ int main(int argc, char** argv)
 				if (0 == event.action)
 				{
 					auto o = Feather.GetEntity("Input Point Cloud _ O");
-					Feather.GetRegistry().get<Renderable>(o).SetVisible(tick);
+					Feather.GetComponent<Renderable>(o).SetVisible(tick);
 					auto p = Feather.GetEntity("Input Point Cloud");
-					Feather.GetRegistry().get<Renderable>(p).SetVisible(!tick);
+					Feather.GetComponent<Renderable>(p).SetVisible(!tick);
 
 					tick = !tick;
 				}
@@ -83,19 +83,19 @@ int main(int argc, char** argv)
 			});
 
 		Feather.CreateEventCallback<KeyEvent>(cam, [](Entity entity, const KeyEvent& event) {
-			Feather.GetRegistry().get<CameraManipulatorTrackball>(entity).OnKey(event);
+			Feather.GetComponent<CameraManipulatorTrackball>(entity).OnKey(event);
 			});
 
 		Feather.CreateEventCallback<MousePositionEvent>(cam, [](Entity entity, const MousePositionEvent& event) {
-			Feather.GetRegistry().get<CameraManipulatorTrackball>(entity).OnMousePosition(event);
+			Feather.GetComponent<CameraManipulatorTrackball>(entity).OnMousePosition(event);
 			});
 
 		Feather.CreateEventCallback<MouseButtonEvent>(cam, [](Entity entity, const MouseButtonEvent& event) {
-			Feather.GetRegistry().get<CameraManipulatorTrackball>(entity).OnMouseButton(event);
+			Feather.GetComponent<CameraManipulatorTrackball>(entity).OnMouseButton(event);
 			});
 
 		Feather.CreateEventCallback<MouseWheelEvent>(cam, [](Entity entity, const MouseWheelEvent& event) {
-			Feather.GetRegistry().get<CameraManipulatorTrackball>(entity).OnMouseWheel(event);
+			Feather.GetComponent<CameraManipulatorTrackball>(entity).OnMouseWheel(event);
 			});
 	}
 #pragma endregion
@@ -106,7 +106,7 @@ int main(int argc, char** argv)
 		auto statusPanel = Feather.CreateComponent<StatusPanel>(gui);
 
 		Feather.CreateEventCallback<MousePositionEvent>(gui, [](Entity entity, const MousePositionEvent& event) {
-			auto& component = Feather.GetRegistry().get<StatusPanel>(entity);
+			auto& component = Feather.GetComponent<StatusPanel>(entity);
 			component.mouseX = event.xpos;
 			component.mouseY = event.ypos;
 			});
@@ -221,7 +221,7 @@ int main(int argc, char** argv)
 			f32 cz = z;
 
 			Feather.CreateEventCallback<KeyEvent>(entity, [cx, cy, cz](Entity entity, const KeyEvent& event) {
-				auto& renderable = Feather.GetRegistry().get<Renderable>(entity);
+				auto& renderable = Feather.GetComponent<Renderable>(entity);
 				if (GLFW_KEY_M == event.keyCode)
 				{
 					renderable.NextDrawingMode();
@@ -246,7 +246,7 @@ int main(int argc, char** argv)
 					auto entities = Feather.GetRegistry().view<CameraManipulatorTrackball>();
 					for (auto& entity : entities)
 					{
-						auto cameraManipulator = Feather.GetRegistry().get<CameraManipulatorTrackball>(entity);
+						auto cameraManipulator = Feather.GetComponent<CameraManipulatorTrackball>(entity);
 						auto camera = cameraManipulator.GetCamera();
 						camera->SetEye({ cx,cy,cz + cameraManipulator.GetRadius() });
 						camera->SetTarget({ cx,cy,cz });
@@ -696,8 +696,25 @@ int main(int argc, char** argv)
 			f32 cy = y;
 			f32 cz = z;
 
-			Feather.CreateEventCallback<KeyEvent>(entity, [cx, cy, cz](Entity entity, const KeyEvent& event) {
-				auto& renderable = Feather.GetRegistry().get<Renderable>(entity);
+			auto [mx, my, mz] = alp.GetAABBMin();
+			auto [Mx, My, Mz] = alp.GetAABBMax();
+			f32 lx = Mx - mx;
+			f32 ly = My - my;
+			f32 lz = Mz - mz;
+
+			Entity cam = Feather.GetEntity("Camera");
+			auto& pcam = Feather.GetComponent<PerspectiveCamera>(cam);
+			auto& cameraManipulator = Feather.GetComponent<CameraManipulatorTrackball>(cam);
+			cameraManipulator.SetRadius(lx + ly + lz);
+			auto camera = cameraManipulator.GetCamera();
+			camera->SetEye({ cx,cy,cz + cameraManipulator.GetRadius() });
+			camera->SetTarget({ cx,cy,cz });
+
+			cameraManipulator.MakeDefault();
+
+
+			Feather.CreateEventCallback<KeyEvent>(entity, [cx, cy, cz, lx, ly, lz](Entity entity, const KeyEvent& event) {
+				auto& renderable = Feather.GetComponent<Renderable>(entity);
 				if (GLFW_KEY_M == event.keyCode)
 				{
 					renderable.NextDrawingMode();
@@ -717,17 +734,20 @@ int main(int argc, char** argv)
 				else if (GLFW_KEY_PAGE_DOWN == event.keyCode)
 				{
 				}
-				else if (GLFW_KEY_R == event.keyCode)
-				{
-					auto entities = Feather.GetRegistry().view<CameraManipulatorTrackball>();
-					for (auto& entity : entities)
-					{
-						auto cameraManipulator = Feather.GetRegistry().get<CameraManipulatorTrackball>(entity);
-						auto camera = cameraManipulator.GetCamera();
-						camera->SetEye({ cx,cy,cz + cameraManipulator.GetRadius() });
-						camera->SetTarget({ cx,cy,cz });
-					}
-				}
+				//else if (GLFW_KEY_R == event.keyCode)
+				//{
+				//	auto entities = Feather.GetRegistry().view<CameraManipulatorTrackball>();
+				//	for (auto& entity : entities)
+				//	{
+				//		auto cameraManipulator = Feather.GetComponent<CameraManipulatorTrackball>(entity);
+
+				//		cameraManipulator.SetRadius((lx + ly + lz) * 2.0f);
+
+				//		auto camera = cameraManipulator.GetCamera();
+				//		camera->SetEye({ cx,cy,cz + cameraManipulator.GetRadius() });
+				//		camera->SetTarget({ cx,cy,cz });
+				//	}
+				//}
 				});
 
 			t = Time::End(t, "Upload to GPU");
@@ -950,7 +970,7 @@ int main(int argc, char** argv)
 			f32 cz = z;
 
 			Feather.CreateEventCallback<KeyEvent>(entity, [cx,cy,cz](Entity entity, const KeyEvent& event) {
-				auto& renderable = Feather.GetRegistry().get<Renderable>(entity);
+				auto& renderable = Feather.GetComponent<Renderable>(entity);
 				if (GLFW_KEY_M == event.keyCode)
 				{
 					renderable.NextDrawingMode();
@@ -970,17 +990,17 @@ int main(int argc, char** argv)
 				else if (GLFW_KEY_PAGE_DOWN == event.keyCode)
 				{
 				}
-				else if (GLFW_KEY_R == event.keyCode)
-				{
-					auto entities = Feather.GetRegistry().view<CameraManipulatorTrackball>();
-					for (auto& entity : entities)
-					{
-						auto cameraManipulator = Feather.GetRegistry().get<CameraManipulatorTrackball>(entity);
-						auto camera = cameraManipulator.GetCamera();
-						camera->SetEye({ cx,cy,cz + cameraManipulator.GetRadius() });
-						camera->SetTarget({ cx,cy,cz });
-					}
-				}
+				//else if (GLFW_KEY_R == event.keyCode)
+				//{
+				//	auto entities = Feather.GetRegistry().view<CameraManipulatorTrackball>();
+				//	for (auto& entity : entities)
+				//	{
+				//		auto cameraManipulator = Feather.GetComponent<CameraManipulatorTrackball>(entity);
+				//		auto camera = cameraManipulator.GetCamera();
+				//		camera->SetEye({ cx,cy,cz + cameraManipulator.GetRadius() });
+				//		camera->SetTarget({ cx,cy,cz });
+				//	}
+				//}
 				});
 
 			//renderable->AddEventHandler(EventType::KeyPress, [renderable, &alp](const Event& event, FeatherObject* object) {
