@@ -1,3 +1,5 @@
+#pragma warning(disable : 4819)
+
 #include "main.cuh"
 
 #include <nvtx3/nvToolsExt.h>
@@ -44,22 +46,21 @@ namespace Clustering
 		void Clear();
 		void OccupyVoxels();
 
-		void SetHostPoints(const std::vector<float3>& hostPoints);
-		void SetDevicePoints(float* devicePoints, unsigned int numberOfPoints);
+		void SetHostPoints(const std::vector<float3>& hostPoints, const std::vector<float3>& hostNormals, const std::vector<float3>& hostColors);
+		void SetDevicePoints(float* devicePoints, float* deviceNormals, float* deviceColors, unsigned int numberOfPoints);
 
 		void RunClustering(int iterations = 1);
 		std::vector<unsigned int> GetLabels();
 
-		void ConnectedComponentLabeling(
-			Voxel* d_voxels,
-			uint3* occupiedVoxelIndices,
-			unsigned int numberOfOccupiedVoxelIndices,
-			dim3 volumeDimensions);
+		void ConnectedComponentLabeling(unsigned int numberOfOccupiedVoxelIndices);
 
 	private:
 		ClusteringCacheInfo info;
 
+		bool setFromHost = false;
 		float* d_points = nullptr;
+		float* d_normals = nullptr;
+		float* d_colors = nullptr;
 		unsigned int numberOfPoints = 0;
 		unsigned int* d_labels = nullptr;
 
@@ -101,14 +102,23 @@ namespace Clustering
 		if (info.numberOfOccupiedVoxelIndices)
 			cudaFree(info.numberOfOccupiedVoxelIndices);
 
-		if (d_points)
-			cudaFree(d_points);
-
 		if (occupiedPointIndices)
 			cudaFree(occupiedPointIndices);
 
 		if (numberOfOccupiedPointIndices)
 			cudaFree(numberOfOccupiedPointIndices);
+
+		if (setFromHost)
+		{
+			if (d_points)
+				cudaFree(d_points);
+
+			if (d_normals)
+				cudaFree(d_normals);
+
+			if (d_colors)
+				cudaFree(d_colors);
+		}
 	}
 
 	__global__ void Kernel_ClearVoxels(ClusteringCacheInfo info)
@@ -134,6 +144,7 @@ namespace Clustering
 	__global__ void Kernel_OccupyVoxels(
 		ClusteringCacheInfo info,
 		float* d_points,
+		float* d_colors,
 		unsigned int numberOfPoints,
 		unsigned int* occupiedPointIndices,
 		unsigned int* numberOfOccupiedPointIndices)
@@ -178,6 +189,7 @@ namespace Clustering
 		Kernel_OccupyVoxels << <gridSize, blockSize >> > (
 			info,
 			d_points,
+			d_colors,
 			numberOfPoints,
 			occupiedPointIndices,
 			numberOfOccupiedPointIndices);
@@ -186,23 +198,31 @@ namespace Clustering
 		nvtxRangePop();
 	}
 
-	void ClusteringCache::SetHostPoints(const std::vector<float3>& hostPoints)
+	void ClusteringCache::SetHostPoints(const std::vector<float3>& hostPoints, const std::vector<float3>& hostNormals, const std::vector<float3>& hostColors)
 	{
+		setFromHost = true;
+
 		numberOfPoints = static_cast<unsigned int>(hostPoints.size());
 		
 		cudaMalloc(&d_points, sizeof(float3) * numberOfPoints);
+		cudaMalloc(&d_normals, sizeof(float3) * numberOfPoints);
+		cudaMalloc(&d_colors, sizeof(float3) * numberOfPoints);
 
 		cudaMalloc(&occupiedPointIndices, sizeof(unsigned int) * numberOfPoints);
 		cudaMalloc(&numberOfOccupiedPointIndices, sizeof(unsigned int));
 		cudaMemset(numberOfOccupiedPointIndices, 0, sizeof(unsigned int));
 
 		cudaMemcpy(d_points, hostPoints.data(), sizeof(float3) * numberOfPoints, cudaMemcpyHostToDevice);
+		cudaMemcpy(d_normals, hostNormals.data(), sizeof(float3) * numberOfPoints, cudaMemcpyHostToDevice);
+		cudaMemcpy(d_colors, hostColors.data(), sizeof(float3) * numberOfPoints, cudaMemcpyHostToDevice);
 	}
 
-	void ClusteringCache::SetDevicePoints(float* devicePoints, unsigned int numberOfPoints)
+	void ClusteringCache::SetDevicePoints(float* devicePoints, float* deviceNormals, float* deviceColors, unsigned int numberOfPoints)
 	{
 		this->numberOfPoints = numberOfPoints;
 		d_points = devicePoints;
+		d_normals = deviceNormals;
+		d_colors = deviceColors;
 
 		cudaMalloc(&occupiedPointIndices, sizeof(unsigned int) * numberOfPoints);
 		cudaMalloc(&numberOfOccupiedPointIndices, sizeof(unsigned int));
@@ -225,7 +245,7 @@ namespace Clustering
 
 			nvtxRangePushA("CCL");
 
-			ConnectedComponentLabeling(info.voxels, info.occupiedVoxelIndices, h_occupiedCount, info.cacheDimensions);
+			ConnectedComponentLabeling(h_occupiedCount);
 
 			nvtxRangePop();
 		}
@@ -354,15 +374,9 @@ namespace Clustering
 		info.voxels[center].label = FindRoot(info.voxels, info.voxels[center].label);
 	}
 
-	void ClusteringCache::ConnectedComponentLabeling(
-		Voxel* d_voxels,
-		uint3* occupiedVoxelIndices,
-		unsigned int numberOfOccupiedVoxelIndices,
-		dim3 volumeDimensions)
+	void ClusteringCache::ConnectedComponentLabeling(unsigned int numberOfOccupiedVoxelIndices)
 	{
-		unsigned int totalVoxels = volumeDimensions.x * volumeDimensions.y * volumeDimensions.z;
 		unsigned int blockSize = 256;
-		unsigned int gridVoxels = (totalVoxels + blockSize - 1) / blockSize;
 		unsigned int gridOccupied = (numberOfOccupiedVoxelIndices + blockSize - 1) / blockSize;
 
 		Kernel_InterBlockMerge26Way << <gridOccupied, blockSize >> > (info);
@@ -374,7 +388,7 @@ namespace Clustering
 }
 
 
-std::vector<unsigned int> cuMain(const std::vector<float3>& host_points, float3 center)
+std::vector<unsigned int> cuMain(const std::vector<float3>& host_points, const std::vector<float3>& host_normals, const std::vector<float3>& host_colors, float3 center)
 {
 	Clustering::ClusteringCacheInfo info;
 	info.voxelSize = 0.1f;
@@ -390,18 +404,30 @@ std::vector<unsigned int> cuMain(const std::vector<float3>& host_points, float3 
 	cache.Initialize();
 
 	float* d_points;
+	float* d_normals;
+	float* d_colors;
 
 	//cache.SetHostPoints(host_points);
 
 	cudaMalloc(&d_points, sizeof(float) * 3 * host_points.size());
 	cudaMemcpy(d_points, host_points.data(), sizeof(float) * 3 * host_points.size(), cudaMemcpyHostToDevice);
-	cache.SetDevicePoints(d_points, host_points.size());
+
+	cudaMalloc(&d_normals, sizeof(float) * 3 * host_normals.size());
+	cudaMemcpy(d_normals, host_normals.data(), sizeof(float) * 3 * host_normals.size(), cudaMemcpyHostToDevice);
+
+	cudaMalloc(&d_colors, sizeof(float) * 3 * host_colors.size());
+	cudaMemcpy(d_colors, host_colors.data(), sizeof(float) * 3 * host_colors.size(), cudaMemcpyHostToDevice);
+
+	cache.SetDevicePoints(d_points, d_normals, d_colors, (unsigned int)host_points.size());
 
 	cache.RunClustering(10);
 	std::vector<unsigned int> labels = cache.GetLabels();
+
 	cache.Terminate();
 
 	cudaFree(d_points);
+	cudaFree(d_normals);
+	cudaFree(d_colors);
 
 	return labels;
 }

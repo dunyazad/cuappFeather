@@ -76,8 +76,7 @@
     <CudaCompile>
       <TargetMachinePlatform>64</TargetMachinePlatform>
       <CodeGeneration>compute_80,sm_80</CodeGeneration>
-      <AdditionalOptions>--std=c++17 --expt-relaxed-constexpr
- %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>--std=c++17 --expt-relaxed-constexpr -Xcompiler /wd4819 %(AdditionalOptions)</AdditionalOptions>
     </CudaCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -101,8 +100,7 @@
     <CudaCompile>
       <TargetMachinePlatform>64</TargetMachinePlatform>
       <CodeGeneration>compute_80,sm_80</CodeGeneration>
-      <AdditionalOptions>--std=c++17 --expt-relaxed-constexpr
- %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>--std=c++17 --expt-relaxed-constexpr -Xcompiler /wd4819 %(AdditionalOptions)</AdditionalOptions>
     </CudaCompile>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
