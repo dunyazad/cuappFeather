@@ -367,11 +367,13 @@ namespace Clustering
 	__global__ void Kernel_CompressLabels(ClusteringCacheInfo info)
 	{
 		unsigned int threadid = blockIdx.x * blockDim.x + threadIdx.x;
-		if (threadid >= info.numberOfVoxels) return;
+		if (threadid >= *info.numberOfOccupiedVoxelIndices) return;
 
-		if (0 != info.voxels[threadid].label) {
-			info.voxels[threadid].label = FindRoot(info.voxels, threadid);
-		}
+		uint3 idx = info.occupiedVoxelIndices[threadid];
+		unsigned int center = idx.z * info.cacheDimensions.y * info.cacheDimensions.x + idx.y * info.cacheDimensions.x + idx.x;
+		if (0 == info.voxels[center].label) return;
+
+		info.voxels[center].label = FindRoot(info.voxels, info.voxels[center].label);
 	}
 
 	void ClusteringCache::ConnectedComponentLabeling(
@@ -388,7 +390,7 @@ namespace Clustering
 		Kernel_InterBlockMerge26Way << <gridOccupied, blockSize >> > (info);
 		cudaDeviceSynchronize();
 
-		Kernel_CompressLabels << <gridVoxels, blockSize >> > (info);
+		Kernel_CompressLabels << <gridOccupied, blockSize >> > (info);
 		cudaDeviceSynchronize();
 	}
 }
@@ -399,6 +401,7 @@ std::vector<unsigned int> cuMain(const std::vector<float3>& host_points, float3 
 	Clustering::ClusteringCacheInfo info;
 	info.voxelSize = 0.1f;
 	info.cacheDimensions = dim3(200, 300, 400);
+	//info.cacheDimensions = dim3(400, 400, 400);
 	info.numberOfVoxels = info.cacheDimensions.x * info.cacheDimensions.y * info.cacheDimensions.z;
 	info.cacheMin = make_float3(
 		center.x - (info.cacheDimensions.x * info.voxelSize) / 2.0f,
