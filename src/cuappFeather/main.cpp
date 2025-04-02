@@ -102,10 +102,10 @@ int main(int argc, char** argv)
 		{
 			auto t = Time::Now();
 
-			if (false == alp.Deserialize("../../res/3D/ZeroCrossingPoints_Partial.alp"))
+			if (false == alp.Deserialize("../../res/3D/Compound_Partial.alp"))
 			{
 				PLYFormat ply;
-				ply.Deserialize("../../res/3D/ZeroCrossingPoints_Partial.ply");
+				ply.Deserialize("../../res/3D/Compound_Partial.ply");
 				//ply.SwapAxisYZ();
 
 				vector<PointPNC> points;
@@ -147,7 +147,7 @@ int main(int argc, char** argv)
 				alog("PLY %llu points loaded\n", points.size());
 
 				alp.AddPoints(points);
-				alp.Serialize("../../res/3D/ZeroCrossingPoints_Partial.alp");
+				alp.Serialize("../../res/3D/Compound_Partial.alp");
 			}
 
 			t = Time::End(t, "Loading Compound");
@@ -564,10 +564,10 @@ int main(int argc, char** argv)
 		{
 			auto t = Time::Now();
 
-			if (false == alp.Deserialize("../../res/3D/ZeroCrossingPoints_Partial.alp"))
+			if (false == alp.Deserialize("../../res/3D/Compound_Partial.alp"))
 			{
 				PLYFormat ply;
-				ply.Deserialize("../../res/3D/ZeroCrossingPoints_Partial.ply");
+				ply.Deserialize("../../res/3D/Compound_Partial.ply");
 				//ply.SwapAxisYZ();
 
 				vector<PointPNC> points;
@@ -576,6 +576,8 @@ int main(int argc, char** argv)
 					auto px = ply.GetPoints()[i * 3];
 					auto py = ply.GetPoints()[i * 3 + 1];
 					auto pz = ply.GetPoints()[i * 3 + 2];
+
+					if (0 == px && 0 == py && 0 == pz) continue;
 
 					auto nx = ply.GetNormals()[i * 3];
 					auto ny = ply.GetNormals()[i * 3 + 1];
@@ -609,7 +611,7 @@ int main(int argc, char** argv)
 				alog("PLY %llu points loaded\n", points.size());
 
 				alp.AddPoints(points);
-				alp.Serialize("../../res/3D/ZeroCrossingPoints_Partial.alp");
+				alp.Serialize("../../res/3D/Compound_Partial.alp");
 			}
 
 			t = Time::End(t, "Loading Compound");
@@ -815,10 +817,10 @@ int main(int argc, char** argv)
 		{
 			auto t = Time::Now();
 
-			if (false == alp.Deserialize("../../res/3D/ZeroCrossingPoints_Partial.alp"))
+			if (false == alp.Deserialize("../../res/3D/Compound_Partial.alp"))
 			{
 				PLYFormat ply;
-				ply.Deserialize("../../res/3D/ZeroCrossingPoints_Partial.ply");
+				ply.Deserialize("../../res/3D/Compound_Partial.ply");
 				//ply.SwapAxisYZ();
 
 				vector<PointPNC> points;
@@ -860,7 +862,7 @@ int main(int argc, char** argv)
 				alog("PLY %llu points loaded\n", points.size());
 
 				alp.AddPoints(points);
-				alp.Serialize("../../res/3D/ZeroCrossingPoints_Partial.alp");
+				alp.Serialize("../../res/3D/Compound_Partial.alp");
 			}
 
 			t = Time::End(t, "Loading Compound");
@@ -1015,6 +1017,8 @@ int main(int argc, char** argv)
 
 			for (auto& [label, count] : labelHistogram)
 			{
+				alog("[%8d] : %d\n", label, count);
+
 				if (-1 == label) continue;
 				if (count > maxLabelCount)
 				{
@@ -1026,7 +1030,15 @@ int main(int argc, char** argv)
 			for (size_t i = 0; i < pointLabels.size(); i++)
 			{
 				auto label = pointLabels[i];
-				if (maxLabel != label)
+				if (maxLabel == label)
+				{
+					float r = hashToFloat(label * 3 + 0);
+					float g = hashToFloat(label * 3 + 1);
+					float b = hashToFloat(label * 3 + 2);
+
+					renderable.SetInstanceColor(i, MiniMath::V4(r, g, b, 1.0f));
+				}
+				else
 				{
 					auto m = renderable.GetInstanceTransform(i);
 					m.at(0, 0) *= 0.125f;
@@ -1034,14 +1046,6 @@ int main(int argc, char** argv)
 					m.at(2, 2) *= 0.125f;
 					renderable.SetInstanceTransform(i, m);
 					renderable.SetInstanceColor(i, MiniMath::V4(1.0f, 0.0f, 0.0f, 0.0f));
-				}
-				else
-				{
-					float r = hashToFloat(label * 3 + 0);
-					float g = hashToFloat(label * 3 + 1);
-					float b = hashToFloat(label * 3 + 2);
-
-					renderable.SetInstanceColor(i, MiniMath::V4(r, g, b, 1.0f));
 				}
 				//if (label != -1)
 				//{
