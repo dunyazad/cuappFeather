@@ -438,19 +438,20 @@ std::vector<unsigned int> cuMain(float voxelSize, const std::vector<float3>& hos
 
 
 
+// 최적화된 Voxel Hash 기반 Connected Component Labeling (CCL) - GPU 전용 occupied index 추출 커널 포함
+
 #include <vector>
 #include <cuda_runtime.h>
 #include <device_launch_parameters.h>
 #include <nvtx3/nvToolsExt.h>
 #include <iostream>
 
-#define TABLE_SIZE 10000000
+#define TABLE_SIZE 10485760
 #define MAX_PROBE 32
 #define BLOCK_SIZE 256
 
 struct Voxel {
 	int3 coord;
-	float3 color;
 	unsigned int label;
 	int occupied;
 };
@@ -459,21 +460,10 @@ __device__ __host__ inline size_t voxel_hash(int3 coord) {
 	return ((size_t)(coord.x * 73856093) ^ (coord.y * 19349663) ^ (coord.z * 83492791)) % TABLE_SIZE;
 }
 
-//__device__ __forceinline__ unsigned int FindRoot(Voxel* voxels, unsigned int idx) {
-//	while (voxels[idx].label != idx) {
-//		voxels[idx].label = voxels[voxels[idx].label].label;
-//		idx = voxels[idx].label;
-//	}
-//	return idx;
-//}
-
 __device__ __forceinline__ unsigned int FindRoot(Voxel* voxels, unsigned int idx) {
-	while (true) {
-		unsigned int parent = voxels[idx].label;
-		unsigned int grand = voxels[parent].label;
-		if (parent == idx) break;
-		if (parent != grand) voxels[idx].label = grand;
-		idx = parent;
+	while (voxels[idx].label != idx) {
+		voxels[idx].label = voxels[voxels[idx].label].label;
+		idx = voxels[idx].label;
 	}
 	return idx;
 }
@@ -489,41 +479,19 @@ __device__ __forceinline__ void Union(Voxel* voxels, unsigned int a, unsigned in
 	}
 }
 
-__global__ void insert_voxels(float3* points, float3* colors, int n, float voxel_size, Voxel* table, size_t table_size) {
+__global__ void insert_voxels(float3* points, int n, float voxel_size, Voxel* table, size_t table_size) {
 	int idx = blockIdx.x * blockDim.x + threadIdx.x;
 	if (idx >= n) return;
 
 	float3 p = points[idx];
-	float3 color = colors[idx];
 	int3 coord = make_int3(floorf(p.x / voxel_size), floorf(p.y / voxel_size), floorf(p.z / voxel_size));
 
 	size_t h = voxel_hash(coord);
 	for (int i = 0; i < MAX_PROBE; ++i) {
 		size_t slot = (h + i) % table_size;
-		if (false == atomicExch(&table[slot].occupied, true)) {
+		if (!atomicExch(&table[slot].occupied, true)) {
 			table[slot].coord = coord;
-			table[slot].color = color;
 			table[slot].label = slot;
-			printf("%f, %f, %f\n", table[slot].color.x, table[slot].color.y, table[slot].color.z);
-			return;
-		}
-	}
-}
-
-__global__ void update_colors(float3* points, float3* colors, int n, float voxel_size, Voxel* table, size_t table_size) {
-	int idx = blockIdx.x * blockDim.x + threadIdx.x;
-	if (idx >= n) return;
-
-	float3 p = points[idx];
-	int3 coord = make_int3(floorf(p.x / voxel_size), floorf(p.y / voxel_size), floorf(p.z / voxel_size));
-
-	size_t h = voxel_hash(coord);
-	for (int i = 0; i < MAX_PROBE; ++i) {
-		size_t slot = (h + i) % table_size;
-		if (false == atomicExch(&table[slot].occupied, true)) {
-			colors[idx] = table[slot].color;
-			//printf("%f, %f, %f\n", colors[idx].x, colors[idx].y, colors[idx].z);
-			//printf("%f, %f, %f\n", table[slot].color.x, table[slot].color.y, table[slot].color.z);
 			return;
 		}
 	}
@@ -566,7 +534,7 @@ __global__ void Kernel_InterVoxelHashMerge26Way(Voxel* table, unsigned int* occu
 
 		for (int j = 0; j < MAX_PROBE; ++j) {
 			size_t probe = (h + j) % table_size;
-			if (false == table[probe].occupied) break;
+			if (!__ldg(&table[probe].occupied)) break;
 
 			int3 coord = table[probe].coord;
 			if (coord.x == neighborCoord.x && coord.y == neighborCoord.y && coord.z == neighborCoord.z) {
@@ -575,18 +543,6 @@ __global__ void Kernel_InterVoxelHashMerge26Way(Voxel* table, unsigned int* occu
 			}
 		}
 	}
-}
-
-__global__ void Kernel_InterVoxelHashColorMerge26Way(Voxel* table, unsigned int* occupiedIndices, size_t numOccupied, size_t table_size) {
-	int tid = blockIdx.x * blockDim.x + threadIdx.x;
-	if (tid >= numOccupied) return;
-
-	int idx = occupiedIndices[tid];
-	Voxel& voxel = table[idx];
-	if (!voxel.occupied) return;
-
-	voxel.color = table[voxel.label].color;
-	//printf("%f, %f, %f\n", voxel.color.x, voxel.color.y, voxel.color.z);
 }
 
 __global__ void Kernel_CompressVoxelHashLabels(Voxel* table, size_t table_size) {
@@ -626,6 +582,10 @@ std::vector<unsigned int> cuMain(
 	std::vector<float3>& host_colors,
 	float3 center)
 {
+	(void)host_normals;
+	(void)host_colors;
+	(void)center;
+
 	std::vector<unsigned int> labels(host_points.size(), 0);
 
 	Voxel* d_table;
@@ -635,10 +595,6 @@ std::vector<unsigned int> cuMain(
 	float3* d_points;
 	cudaMalloc(&d_points, sizeof(float3) * host_points.size());
 	cudaMemcpy(d_points, host_points.data(), sizeof(float3) * host_points.size(), cudaMemcpyHostToDevice);
-
-	float3* d_colors;
-	cudaMalloc(&d_colors, sizeof(float3) * host_points.size());
-	cudaMemcpy(d_colors, host_colors.data(), sizeof(float3) * host_colors.size(), cudaMemcpyHostToDevice);
 
 	unsigned int* d_labels;
 	cudaMalloc(&d_labels, sizeof(unsigned int) * host_points.size());
@@ -653,7 +609,7 @@ std::vector<unsigned int> cuMain(
 
 	int num_points = static_cast<int>(host_points.size());
 	int num_blocks = (num_points + BLOCK_SIZE - 1) / BLOCK_SIZE;
-	insert_voxels << <num_blocks, BLOCK_SIZE >> > (d_points, d_colors, num_points, voxelSize, d_table, TABLE_SIZE);
+	insert_voxels << <num_blocks, BLOCK_SIZE >> > (d_points, num_points, voxelSize, d_table, TABLE_SIZE);
 	cudaDeviceSynchronize();
 
 	int extractBlocks = (TABLE_SIZE + BLOCK_SIZE - 1) / BLOCK_SIZE;
@@ -667,20 +623,6 @@ std::vector<unsigned int> cuMain(
 	Kernel_InterVoxelHashMerge26Way << <occupiedBlocks, BLOCK_SIZE >> > (d_table, d_occupiedIndices, numOccupied, TABLE_SIZE);
 	cudaDeviceSynchronize();
 
-	//for (size_t i = 0; i < 1000; i++)
-	{
-		//int occupiedBlocks = (numOccupied + BLOCK_SIZE - 1) / BLOCK_SIZE;
-		Kernel_InterVoxelHashColorMerge26Way << <occupiedBlocks, BLOCK_SIZE >> > (d_table, d_occupiedIndices, numOccupied, TABLE_SIZE);
-		cudaDeviceSynchronize();
-	}
-
-	{
-		int num_points = static_cast<int>(host_points.size());
-		int num_blocks = (num_points + BLOCK_SIZE - 1) / BLOCK_SIZE;
-		update_colors << <num_blocks, BLOCK_SIZE >> > (d_points, d_colors, num_points, voxelSize, d_table, TABLE_SIZE);
-		cudaDeviceSynchronize();
-	}
-
 	int tableBlocks = (TABLE_SIZE + BLOCK_SIZE - 1) / BLOCK_SIZE;
 	Kernel_CompressVoxelHashLabels << <tableBlocks, BLOCK_SIZE >> > (d_table, TABLE_SIZE);
 	cudaDeviceSynchronize();
@@ -691,8 +633,6 @@ std::vector<unsigned int> cuMain(
 	cudaDeviceSynchronize();
 
 	cudaMemcpy(labels.data(), d_labels, sizeof(unsigned int) * host_points.size(), cudaMemcpyDeviceToHost);
-
-	cudaMemcpy((float3*)host_colors.data(), d_colors, sizeof(float3) * host_colors.size(), cudaMemcpyDeviceToHost);
 
 	cudaFree(d_counter);
 	cudaFree(d_points);

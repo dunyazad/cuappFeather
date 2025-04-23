@@ -837,9 +837,19 @@ int main(int argc, char** argv)
 
 			for (size_t i = 0; i < host_colors.size(); i++)
 			{
-				auto c = host_colors[i];
-				//printf("%f, %f, %f\n", c.x, c.y, c.z);
-				renderable.SetInstanceColor(i, MiniMath::V4(c.x, c.y, c.z, 1.0f));
+				auto label = pointLabels[i];
+				if (label != -1)
+				{
+					float r = hashToFloat(label * 3 + 0);
+					float g = hashToFloat(label * 3 + 1);
+					float b = hashToFloat(label * 3 + 2);
+
+					renderable.SetInstanceColor(i, MiniMath::V4(r, g, b, 1.0f));
+				}
+
+				//auto c = host_colors[i];
+				////printf("%f, %f, %f\n", c.x, c.y, c.z);
+				//renderable.SetInstanceColor(i, MiniMath::V4(c.x, c.y, c.z, 1.0f));
 			}
 
 			/*
