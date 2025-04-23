@@ -27,11 +27,81 @@ using namespace std;
 //const string resource_file_name_ply = "../../res/3D/Normal.ply";
 //const string resource_file_name_alp = "../../res/3D/Normal.alp";
 
-const string resource_file_name = "Compound_Partial";
+//const string resource_file_name = "Compound_Partial";
+const string resource_file_name = "Compound";
 const string resource_file_name_ply = "../../res/3D/" + resource_file_name + ".ply";
 const string resource_file_name_alp = "../../res/3D/" + resource_file_name + ".alp";
 
 const f32 voxelSize = 0.1f;
+
+#pragma once
+#include <algorithm>
+#include <cmath>
+
+class ColorSpace {
+public:
+	// Convert RGB [0.0, 1.0] ¡æ HSV [H: 0-360, S: 0-1, V: 0-1]
+	static void RGBtoHSV(float r, float g, float b, float& h, float& s, float& v) {
+		float max = std::max({ r, g, b });
+		float min = std::min({ r, g, b });
+		v = max;
+
+		float delta = max - min;
+		if (delta < 1e-6f) {
+			h = 0.0f;
+			s = 0.0f;
+			return;
+		}
+
+		s = delta / max;
+
+		if (r == max)
+			h = 60.0f * fmodf((g - b) / delta, 6.0f);
+		else if (g == max)
+			h = 60.0f * ((b - r) / delta + 2.0f);
+		else
+			h = 60.0f * ((r - g) / delta + 4.0f);
+
+		if (h < 0.0f)
+			h += 360.0f;
+	}
+
+	// Convert HSV [H: 0-360, S: 0-1, V: 0-1] ¡æ RGB [0.0, 1.0]
+	static void HSVtoRGB(float h, float s, float v, float& r, float& g, float& b) {
+		float c = v * s;
+		float h_prime = h / 60.0f;
+		float x = c * (1.0f - fabsf(fmodf(h_prime, 2.0f) - 1.0f));
+
+		float r1, g1, b1;
+		if (0 <= h_prime && h_prime < 1) {
+			r1 = c; g1 = x; b1 = 0;
+		}
+		else if (1 <= h_prime && h_prime < 2) {
+			r1 = x; g1 = c; b1 = 0;
+		}
+		else if (2 <= h_prime && h_prime < 3) {
+			r1 = 0; g1 = c; b1 = x;
+		}
+		else if (3 <= h_prime && h_prime < 4) {
+			r1 = 0; g1 = x; b1 = c;
+		}
+		else if (4 <= h_prime && h_prime < 5) {
+			r1 = x; g1 = 0; b1 = c;
+		}
+		else if (5 <= h_prime && h_prime < 6) {
+			r1 = c; g1 = 0; b1 = x;
+		}
+		else {
+			r1 = g1 = b1 = 0;
+		}
+
+		float m = v - c;
+		r = r1 + m;
+		g = g1 + m;
+		b = b1 + m;
+	}
+};
+
 
 int main(int argc, char** argv)
 {
@@ -673,6 +743,10 @@ int main(int argc, char** argv)
 				auto b = p.color.z;
 				auto a = 1.f;
 
+				float h = 0.0f;
+				float s = 0.0f;
+				float v = 0.0f;
+
 				renderable.AddInstanceColor(MiniMath::V4(r, g, b, a));
 				renderable.AddInstanceNormal(p.normal);
 
@@ -760,6 +834,15 @@ int main(int argc, char** argv)
 			};
 
 			auto pointLabels = cuMain(voxelSize, host_points, host_normals, host_colors, make_float3(x, y, z));
+
+			for (size_t i = 0; i < host_colors.size(); i++)
+			{
+				auto c = host_colors[i];
+				//printf("%f, %f, %f\n", c.x, c.y, c.z);
+				renderable.SetInstanceColor(i, MiniMath::V4(c.x, c.y, c.z, 1.0f));
+			}
+
+			/*
 			for (size_t i = 0; i < pointLabels.size(); i++)
 			{
 				auto label = pointLabels[i];
@@ -860,6 +943,7 @@ int main(int argc, char** argv)
 				renderable.AddVertex({ x, Y, z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
 				renderable.AddVertex({ x, Y, Z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
 			}
+			*/
 		}
 #pragma endregion
 
@@ -1067,7 +1151,7 @@ int main(int argc, char** argv)
 
 			for (auto& [label, count] : labelHistogram)
 			{
-				alog("[%8d] : %d\n", label, count);
+				//alog("[%8d] : %d\n", label, count);
 
 				if (-1 == label) continue;
 				if (count > maxLabelCount)
