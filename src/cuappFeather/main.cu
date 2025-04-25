@@ -436,6 +436,120 @@ std::vector<unsigned int> cuMain(float voxelSize, const std::vector<float3>& hos
 #endif // Voxel CCL
 
 
+template<typename T>
+class VoxelHashMap
+{
+public:
+	struct Voxel
+	{
+		int occupied = 0; // Must be int for atomicExch
+		T* data = nullptr;
+	};
+
+	struct VoxelHashmapInfo
+	{
+		unsigned int hashTableSize = 10240;
+		unsigned int maxProbe = 32;
+		float voxelSize = 0.1f;
+
+		Voxel* d_hashTable = nullptr;  // <- Correct type
+		size_t* d_occupiedKeys = nullptr;
+		unsigned int* d_numberOfOccupiedKeys = nullptr; // <- Fixed typo
+	};
+
+public:
+	VoxelHashMap()
+	{
+	}
+
+	~VoxelHashMap()
+	{
+		Terminate();
+	}
+
+	void Initialize(float voxelSize = 0.1f, unsigned int hashTableSize = 10240, unsigned int maxProbe = 32)
+	{
+		info.hashTableSize = hashTableSize;
+		info.maxProbe = maxProbe;
+		info.voxelSize = voxelSize;
+
+		cudaMalloc(&info.d_hashTable, sizeof(Voxel) * info.hashTableSize);
+		cudaMemset(info.d_hashTable, 0, sizeof(Voxel) * info.hashTableSize);
+	}
+
+	void Terminate()
+	{
+		if (info.d_hashTable)
+		{
+			cudaFree(info.d_hashTable);
+			info.d_hashTable = nullptr;
+		}
+		if (info.d_occupiedKeys)
+		{
+			cudaFree(info.d_occupiedKeys);
+			info.d_occupiedKeys = nullptr;
+		}
+		if (info.d_numberOfOccupiedKeys)
+		{
+			cudaFree(info.d_numberOfOccupiedKeys);
+			info.d_numberOfOccupiedKeys = nullptr;
+		}
+	}
+
+	__device__ __host__ static inline size_t voxel_hash(int3 coord, unsigned int hashTableSize)
+	{
+		return ((size_t)(coord.x * 73856093) ^ (coord.y * 19349663) ^ (coord.z * 83492791)) % hashTableSize;
+	}
+
+	__global__ void InsertKernel(VoxelHashMap<T>::VoxelHashmapInfo info, float3* positions, T** datas, int n)
+	{
+		int idx = blockIdx.x * blockDim.x + threadIdx.x;
+		if (idx >= n) return;
+
+		float3 pos = positions[idx];
+		T* data = datas[idx];
+
+		int3 coord = make_int3(
+			floorf(pos.x / info.voxelSize),
+			floorf(pos.y / info.voxelSize),
+			floorf(pos.z / info.voxelSize));
+
+		size_t h = VoxelHashMap<T>::voxel_hash(coord, info.hashTableSize);
+		for (int i = 0; i < info.maxProbe; ++i) {
+			size_t slot = (h + i) % info.hashTableSize;
+			if (atomicExch(&info.d_hashTable[slot].occupied, 1) == 0) {
+				info.d_hashTable[slot].data = data;
+				return;
+			}
+		}
+	}
+
+	__host__ void H_Insert(float3 position, T* data)
+	{
+		// Allocate device memory for a single position and data
+		float3* d_position;
+		T** d_data;
+		cudaMalloc(&d_position, sizeof(float3));
+		cudaMalloc(&d_data, sizeof(T*));
+
+		// Copy position and data pointer to device
+		cudaMemcpy(d_position, &position, sizeof(float3), cudaMemcpyHostToDevice);
+		cudaMemcpy(d_data, &data, sizeof(T*), cudaMemcpyHostToDevice);
+
+		// Launch 1 thread to insert
+		InsertKernel << <1, 1 >> > (info, d_position, d_data, 1);
+		cudaDeviceSynchronize(); // ensure kernel is done
+
+		cudaFree(d_position);
+		cudaFree(d_data);
+	}
+
+private:
+	VoxelHashmapInfo info;
+};
+
+
+
 
 
 // 최적화된 Voxel Hash 기반 Connected Component Labeling (CCL) - GPU 전용 occupied index 추출 커널 포함
@@ -582,9 +696,9 @@ std::vector<unsigned int> cuMain(
 	std::vector<float3>& host_colors,
 	float3 center)
 {
-	(void)host_normals;
-	(void)host_colors;
-	(void)center;
+	VoxelHashMap<Voxel> hashmap;
+	hashmap.Initialize();
+	hashmap.Terminate();
 
 	std::vector<unsigned int> labels(host_points.size(), 0);
 
