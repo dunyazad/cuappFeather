@@ -15,3 +15,6 @@
 	path = External/Feather
 	url = https://github.com/dunyazad/Feather.git
 	branch = ENTT
+[submodule "External/stb"]
+	path = External/stb
+	url = https://github.com/nothings/stb.git

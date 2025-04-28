@@ -738,48 +738,49 @@ return (seed & 0xFFFFFF) / static_cast<float>(0xFFFFFF);
 		renderable->AddColors(colors);
 		renderable->AddUVs(uvs);
 
-		ui8* textureData = new ui8[1024 * 1024 * 4];
-		for (ui32 y = 0; y < 1024; y++)
-		{
-			for (ui32 x = 0; x < 1024; x++)
-			{
-				auto index = y * 1024 * 4 + x * 4;
+		//ui8* textureData = new ui8[1024 * 1024 * 4];
+		//for (ui32 y = 0; y < 1024; y++)
+		//{
+		//	for (ui32 x = 0; x < 1024; x++)
+		//	{
+		//		auto index = y * 1024 * 4 + x * 4;
 
-				if (512 > x && 512 > y)
-				{
-					textureData[index] = 255;
-					textureData[index + 1] = 0;
-					textureData[index + 2] = 0;
-					textureData[index + 3] = 255;
-				}
-				else if(512 < x && 512 > y)
-				{
-					textureData[index] = 0;
-					textureData[index + 1] = 255;
-					textureData[index + 2] = 0;
-					textureData[index + 3] = 255;
-				}
-				else if (512 > x && 512 < y)
-				{
-					textureData[index] = 0;
-					textureData[index + 1] = 0;
-					textureData[index + 2] = 255;
-					textureData[index + 3] = 255;
-				}
-				else if (512 < x && 512 < y)
-				{
-					textureData[index] = 255;
-					textureData[index + 1] = 255;
-					textureData[index + 2] = 255;
-					textureData[index + 3] = 255;
-				}
-			}
-		}
+		//		if (512 > x && 512 > y)
+		//		{
+		//			textureData[index] = 255;
+		//			textureData[index + 1] = 0;
+		//			textureData[index + 2] = 0;
+		//			textureData[index + 3] = 255;
+		//		}
+		//		else if(512 < x && 512 > y)
+		//		{
+		//			textureData[index] = 0;
+		//			textureData[index + 1] = 255;
+		//			textureData[index + 2] = 0;
+		//			textureData[index + 3] = 255;
+		//		}
+		//		else if (512 > x && 512 < y)
+		//		{
+		//			textureData[index] = 0;
+		//			textureData[index + 1] = 0;
+		//			textureData[index + 2] = 255;
+		//			textureData[index + 3] = 255;
+		//		}
+		//		else if (512 < x && 512 < y)
+		//		{
+		//			textureData[index] = 255;
+		//			textureData[index + 1] = 255;
+		//			textureData[index + 2] = 255;
+		//			textureData[index + 3] = 255;
+		//		}
+		//	}
+		//}
 
 		auto texture = Feather.CreateComponent<Texture>(entity);
-		texture->SetTextureData(1024, 1024, textureData);
+		//texture->SetTextureData(1024, 1024, textureData);
+		texture->LoadFile(File("../../res/2D/Owl.jpg"));
 
-		delete[] textureData;
+		//delete[] textureData;
 	}
 	});
 
