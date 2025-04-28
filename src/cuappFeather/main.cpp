@@ -111,6 +111,8 @@ int main(int argc, char** argv)
 
 	auto w = Feather.GetFeatherWindow();
 
+	thread* cudaThread = nullptr;
+
 	ALPFormat<PointPNC> alp;
 
 	bool tick = false;
@@ -441,6 +443,7 @@ int main(int argc, char** argv)
 
 	Feather.AddOnInitializeCallback([&]() {
 
+#ifdef PLY_Model_File
 #pragma region Load PLY and Convert to ALP format
 		{
 			auto t = Time::Now();
@@ -722,6 +725,26 @@ return (seed & 0xFFFFFF) / static_cast<float>(0xFFFFFF);
 			}
 		}
 #pragma endregion
+#endif
+	{
+		auto entity = Feather.CreateEntity("Texture");
+		auto renderable = Feather.CreateComponent<Renderable>(entity);
+
+		renderable->Initialize(Renderable::GeometryMode::Triangles);
+		renderable->AddShader(Feather.CreateShader("Texturing", File("../../res/Shaders/Texturing.vs"), File("../../res/Shaders/Texturing.fs")));
+
+		auto texture = Feather.CreateComponent<Texture>(entity);
+		texture->LoadFile(File("../../res/2D/Owl.jpg"));
+
+		auto [indices, vertices, normals, colors, uvs] = GeometryBuilder::BuildPlane((f32)texture->GetWidth(), (f32)texture->GetHeight(), "zero", "zaxis");
+		//auto [indices, vertices, normals, colors, uvs] = GeometryBuilder::BuildBox("zero", "half");
+		renderable->AddIndices(indices);
+		renderable->AddVertices(vertices);
+		renderable->AddNormals(normals);
+		renderable->AddColors(colors);
+		renderable->AddUVs(uvs);
+
+	}
 
 	{
 		auto entity = Feather.CreateEntity("RayMarchingPlane");
@@ -730,7 +753,7 @@ return (seed & 0xFFFFFF) / static_cast<float>(0xFFFFFF);
 		renderable->Initialize(Renderable::GeometryMode::Triangles);
 		renderable->AddShader(Feather.CreateShader("Texturing", File("../../res/Shaders/Texturing.vs"), File("../../res/Shaders/Texturing.fs")));
 
-		auto [indices, vertices, normals, colors, uvs] = GeometryBuilder::BuildPlane(100.0f, 100.0f, "zero", "zaxis");
+		auto [indices, vertices, normals, colors, uvs] = GeometryBuilder::BuildPlane(384.0f, 216.0f, "zero", "zaxis");
 		//auto [indices, vertices, normals, colors, uvs] = GeometryBuilder::BuildBox("zero", "half");
 		renderable->AddIndices(indices);
 		renderable->AddVertices(vertices);
@@ -738,35 +761,35 @@ return (seed & 0xFFFFFF) / static_cast<float>(0xFFFFFF);
 		renderable->AddColors(colors);
 		renderable->AddUVs(uvs);
 
-		//ui8* textureData = new ui8[1024 * 1024 * 4];
-		//for (ui32 y = 0; y < 1024; y++)
+		//ui8* textureData = new ui8[3840 * 2160 * 4];
+		//for (ui32 y = 0; y < 2160; y++)
 		//{
-		//	for (ui32 x = 0; x < 1024; x++)
+		//	for (ui32 x = 0; x < 3840; x++)
 		//	{
-		//		auto index = y * 1024 * 4 + x * 4;
+		//		auto index = y * 3840 * 4 + x * 4;
 
-		//		if (512 > x && 512 > y)
+		//		if (1080 > x && 1080 > y)
 		//		{
 		//			textureData[index] = 255;
 		//			textureData[index + 1] = 0;
 		//			textureData[index + 2] = 0;
 		//			textureData[index + 3] = 255;
 		//		}
-		//		else if(512 < x && 512 > y)
+		//		else if(1920 < x && 1920 > y)
 		//		{
 		//			textureData[index] = 0;
 		//			textureData[index + 1] = 255;
 		//			textureData[index + 2] = 0;
 		//			textureData[index + 3] = 255;
 		//		}
-		//		else if (512 > x && 512 < y)
+		//		else if (1080 > x && 1080 < y)
 		//		{
 		//			textureData[index] = 0;
 		//			textureData[index + 1] = 0;
 		//			textureData[index + 2] = 255;
 		//			textureData[index + 3] = 255;
 		//		}
-		//		else if (512 < x && 512 < y)
+		//		else if (1920 < x && 1920 < y)
 		//		{
 		//			textureData[index] = 255;
 		//			textureData[index + 1] = 255;
@@ -776,13 +799,87 @@ return (seed & 0xFFFFFF) / static_cast<float>(0xFFFFFF);
 		//	}
 		//}
 
+		ForceGPUPerformance();
+
+		glfwMakeContextCurrent(w->GetGLFWwindow());
+
 		auto texture = Feather.CreateComponent<Texture>(entity);
-		//texture->SetTextureData(1024, 1024, textureData);
-		texture->LoadFile(File("../../res/2D/Owl.jpg"));
+		texture->AllocTextureData(3840, 2160);
+
+		GenerateCUDATexture(texture->GetTextureID(), 3840, 2160, 0, 0);
+
+		//texture->SetTextureData(3840, 2160, textureData);
+		//texture->LoadFile(File("../../res/2D/Owl.jpg"));
 
 		//delete[] textureData;
+
+		// cudaThread 실행
+		//cudaThread = new thread([&w, &texture]() {
+		//	Sleep(3000);
+		//	// 이 스레드에서 Context를 가져옴
+		//	glfwMakeContextCurrent(w->GetGLFWwindow());
+		//
+		//	GenerateCUDATexture(texture->GetTextureID(), 3840, 2160, 0, 0);
+
+		//	glfwMakeContextCurrent(nullptr);
+
+		//	auto lastTime = Time::Now();
+		//	while (true)
+		//	{
+		//		glfwMakeContextCurrent(w->GetGLFWwindow());
+		//		
+		//		auto currentTime = Time::Now();
+		//		f32 timeDelta = Time::Microseconds(lastTime, currentTime);
+		//		lastTime = currentTime;
+
+		//		auto entity = Feather.GetEntityByName("RayMarchingPlane");
+		//		auto texture = Feather.GetComponent<Texture>(entity);
+		//		static f32 acc = 0;
+		//		acc += timeDelta / 10000.0f;
+
+		//		UpdateCUDATexture(texture->GetTextureID(), 3840, 2160, acc, acc);
+
+		//		glfwMakeContextCurrent(nullptr);
+
+		//		//Sleep(16);
+		//	}
+
+		//	// 작업 끝나면 Context 해제
+		//	glfwMakeContextCurrent(nullptr);
+		//	});
 	}
 	});
+
+	//thread t([]() {
+	//	ForceGPUPerformance();
+
+	//	auto lastTime = Time::Now();
+	//	while (true)
+	//	{
+	//		auto currentTime = Time::Now();
+	//		f32 timeDelta = Time::Microseconds(lastTime, currentTime);
+	//		lastTime = currentTime;
+
+	//		auto entity = Feather.GetEntityByName("RayMarchingPlane");
+	//		auto texture = Feather.GetComponent<Texture>(entity);
+	//		static f32 acc = 0;
+	//		acc += timeDelta / 10.0f;
+
+	//		UpdateCUDATexture(texture->GetTextureID(), 3840, 2160, acc, acc);
+	//	}
+	//	});
+
+	Feather.AddOnUpdateCallback([](f32 timeDelta) {
+		//alog("Update\n");
+
+		auto entity = Feather.GetEntityByName("RayMarchingPlane");
+		auto texture = Feather.GetComponent<Texture>(entity);
+		static f32 acc = 0;
+		acc += timeDelta / 10.0f;
+		
+		UpdateCUDATexture(texture->GetTextureID(), 3840, 2160, acc, acc);
+
+		});
 
 	Feather.Run();
 
