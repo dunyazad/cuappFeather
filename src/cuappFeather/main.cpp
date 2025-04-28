@@ -443,6 +443,7 @@ int main(int argc, char** argv)
 
 	Feather.AddOnInitializeCallback([&]() {
 
+#define PLY_Model_File
 #ifdef PLY_Model_File
 #pragma region Load PLY and Convert to ALP format
 		{
@@ -813,40 +814,28 @@ return (seed & 0xFFFFFF) / static_cast<float>(0xFFFFFF);
 
 		//delete[] textureData;
 
-		// cudaThread 실행
-		//cudaThread = new thread([&w, &texture]() {
-		//	Sleep(3000);
-		//	// 이 스레드에서 Context를 가져옴
-		//	glfwMakeContextCurrent(w->GetGLFWwindow());
-		//
-		//	GenerateCUDATexture(texture->GetTextureID(), 3840, 2160, 0, 0);
+		cudaThread = new thread([&w, &texture]() {
+			auto lastTime = Time::Now();
+			while (true)
+			{
+				glfwMakeContextCurrent(w->GetGLFWwindow());
+				
+				auto currentTime = Time::Now();
+				f32 timeDelta = Time::Microseconds(lastTime, currentTime);
+				lastTime = currentTime;
 
-		//	glfwMakeContextCurrent(nullptr);
+				auto entity = Feather.GetEntityByName("RayMarchingPlane");
+				auto texture = Feather.GetComponent<Texture>(entity);
+				static f32 acc = 0;
+				acc += timeDelta / 10000.0f;
 
-		//	auto lastTime = Time::Now();
-		//	while (true)
-		//	{
-		//		glfwMakeContextCurrent(w->GetGLFWwindow());
-		//		
-		//		auto currentTime = Time::Now();
-		//		f32 timeDelta = Time::Microseconds(lastTime, currentTime);
-		//		lastTime = currentTime;
+				//UpdateCUDATexture(texture->GetTextureID(), 3840, 2160, acc, acc);
+				CallFillTextureKernel(3840, 2160, acc, acc);
+			}
 
-		//		auto entity = Feather.GetEntityByName("RayMarchingPlane");
-		//		auto texture = Feather.GetComponent<Texture>(entity);
-		//		static f32 acc = 0;
-		//		acc += timeDelta / 10000.0f;
-
-		//		UpdateCUDATexture(texture->GetTextureID(), 3840, 2160, acc, acc);
-
-		//		glfwMakeContextCurrent(nullptr);
-
-		//		//Sleep(16);
-		//	}
-
-		//	// 작업 끝나면 Context 해제
-		//	glfwMakeContextCurrent(nullptr);
-		//	});
+			// 작업 끝나면 Context 해제
+			glfwMakeContextCurrent(nullptr);
+			});
 	}
 	});
 

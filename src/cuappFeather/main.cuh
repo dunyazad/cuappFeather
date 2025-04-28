@@ -17,3 +17,5 @@ void cuMain(float voxelSize, std::vector<float3>& host_points, std::vector<float
 bool ForceGPUPerformance();
 void GenerateCUDATexture(unsigned int textureID, unsigned int width, unsigned int height, unsigned int xOffset, int yOffset);
 void UpdateCUDATexture(unsigned int textureID, unsigned int width, unsigned int height, unsigned int xOffset, int yOffset);
+
+void CallFillTextureKernel(unsigned int width, unsigned int height, unsigned int xOffset, int yOffset);

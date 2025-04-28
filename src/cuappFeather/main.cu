@@ -26,9 +26,10 @@
 
 #pragma comment(lib, "nvapi64.lib")
 
-Eigen::Vector3f d_points;
-Eigen::Vector3f d_normals;
-Eigen::Vector3f d_colors;
+Eigen::Vector3f* d_points;
+Eigen::Vector3f* d_normals;
+Eigen::Vector3f* d_colors;
+unsigned int numberOfPoints = 0;
 
 void cuMain(
 	float voxelSize,
@@ -37,7 +38,8 @@ void cuMain(
 	std::vector<float3>& host_colors,
 	float3 center)
 {
-    
+    numberOfPoints = host_points.size();
+    alog("askjdfh\n");
 }
 
 bool ForceGPUPerformance()
@@ -159,6 +161,8 @@ bool ForceGPUPerformance()
 //}
 #pragma endregion
 
+bool tick = false;
+
 cudaSurfaceObject_t surfaceObject = 0;
 cudaGraphicsResource* cudaResource = nullptr;
 
@@ -231,6 +235,8 @@ void UpdateCUDATexture(unsigned int textureID, unsigned int width, unsigned int 
 {
     if (cudaResource == nullptr) return;
 
+    if (false == tick) return;
+
     nvtxRangePushA("UpdateCUDATexture");
 
     //// (1) Register OpenGL texture to CUDA
@@ -266,11 +272,13 @@ void UpdateCUDATexture(unsigned int textureID, unsigned int width, unsigned int 
     cudaSurfaceObject_t surfaceObject = 0; // <-- 여기가 로컬 변수
     cudaCreateSurfaceObject(&surfaceObject, &resDesc);
 
-    // (5) Kernel Launch
-    dim3 blockSize(32, 32);
-    dim3 gridSize((width + blockSize.x - 1) / blockSize.x, (height + blockSize.y - 1) / blockSize.y);
-    fillTextureKernel << <gridSize, blockSize >> > (surfaceObject, width, height, xOffset, yOffset);
-    cudaDeviceSynchronize();
+    //// (5) Kernel Launch
+    //dim3 blockSize(32, 32);
+    //dim3 gridSize((width + blockSize.x - 1) / blockSize.x, (height + blockSize.y - 1) / blockSize.y);
+    //fillTextureKernel << <gridSize, blockSize >> > (surfaceObject, width, height, xOffset, yOffset);
+    //cudaDeviceSynchronize();
+
+    //CallFillTextureKernel(width, height, xOffset, yOffset);
 
     // (6) Clean up
     cudaDestroySurfaceObject(surfaceObject);
@@ -284,4 +292,23 @@ void UpdateCUDATexture(unsigned int textureID, unsigned int width, unsigned int 
     //glBindTexture(GL_TEXTURE_2D, 0);
 
     nvtxRangePop();
+
+    tick = false;
+}
+
+void CallFillTextureKernel(unsigned int width, unsigned int height, unsigned int xOffset, int yOffset)
+{
+    if (true == tick) return;
+
+    nvtxRangePushA("CallFillTextureKernel");
+    
+
+    dim3 blockSize(32, 32);
+    dim3 gridSize((width + blockSize.x - 1) / blockSize.x, (height + blockSize.y - 1) / blockSize.y);
+    fillTextureKernel << <gridSize, blockSize >> > (surfaceObject, width, height, xOffset, yOffset);
+    cudaDeviceSynchronize();
+
+    nvtxRangePop();
+
+    tick = true;
 }
