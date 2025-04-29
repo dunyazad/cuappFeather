@@ -185,265 +185,9 @@ int main(int argc, char** argv)
 	}
 #pragma endregion
 
-	//#define Load Model Default
-#ifdef Load Model Default
-	Feather.AddOnInitializeCallback([&]() {
-#pragma region Load PLY and Convert to ALP format
-		{
-			auto t = Time::Now();
-
-			if (false == alp.Deserialize(resource_file_name_alp))
-			{
-				PLYFormat ply;
-				ply.Deserialize(resource_file_name_ply);
-				//ply.SwapAxisYZ();
-
-				vector<PointPNC> points;
-				for (size_t i = 0; i < ply.GetPoints().size() / 3; i++)
-				{
-					auto px = ply.GetPoints()[i * 3];
-					auto py = ply.GetPoints()[i * 3 + 1];
-					auto pz = ply.GetPoints()[i * 3 + 2];
-
-					auto nx = ply.GetNormals()[i * 3];
-					auto ny = ply.GetNormals()[i * 3 + 1];
-					auto nz = ply.GetNormals()[i * 3 + 2];
-
-					if (false == ply.GetColors().empty())
-					{
-						if (ply.UseAlpha())
-						{
-							auto cx = ply.GetColors()[i * 4];
-							auto cy = ply.GetColors()[i * 4 + 1];
-							auto cz = ply.GetColors()[i * 4 + 2];
-							auto ca = ply.GetColors()[i * 4 + 3];
-
-							points.push_back({ {px, py, pz}, {nx, ny, nz}, {cx, cy, cz} });
-						}
-						else
-						{
-							auto cx = ply.GetColors()[i * 3];
-							auto cy = ply.GetColors()[i * 3 + 1];
-							auto cz = ply.GetColors()[i * 3 + 2];
-
-							points.push_back({ {px, py, pz}, {nx, ny, nz}, {cx, cy, cz} });
-						}
-					}
-					else
-					{
-						points.push_back({ {px, py, pz}, {nx, ny, nz}, {1.0f, 1.0f, 1.0f} });
-					}
-				}
-				alog("PLY %llu points loaded\n", points.size());
-
-				alp.AddPoints(points);
-				alp.Serialize(resource_file_name_alp);
-			}
-
-			t = Time::End(t, "Loading Compound");
-
-			auto entity = Feather.CreateEntity("Input Point Cloud _ O");
-			auto renderable = Feather.CreateComponent<Renderable>(entity);
-
-			renderable.Initialize(Renderable::GeometryMode::Triangles);
-			renderable.AddShader(Feather.CreateShader("Instancing", File("../../res/Shaders/Instancing.vs"), File("../../res/Shaders/Instancing.fs")));
-			renderable.AddShader(Feather.CreateShader("InstancingWithoutNormal", File("../../res/Shaders/InstancingWithoutNormal.vs"), File("../../res/Shaders/InstancingWithoutNormal.fs")));
-			renderable.SetActiveShaderIndex(1);
-
-			auto [indices, vertices, normals, colors, uvs] = GeometryBuilder::BuildSphere("zero", 0.05f, 6, 6);
-			//auto [indices, vertices, normals, colors, uvs] = GeometryBuilder::BuildBox("zero", "half");
-			renderable.AddIndices(indices);
-			renderable.AddVertices(vertices);
-			renderable.AddNormals(normals);
-			renderable.AddColors(colors);
-			renderable.AddUVs(uvs);
-
-			vector<float3> host_points;
-			vector<float3> host_normals;
-			vector<float3> host_colors;
-
-			for (auto& p : alp.GetPoints())
-			{
-				auto r = p.color.x;
-				auto g = p.color.y;
-				auto b = p.color.z;
-				auto a = 1.f;
-
-				renderable.AddInstanceColor(MiniMath::V4(r, g, b, a));
-				renderable.AddInstanceNormal(p.normal);
-
-				MiniMath::M4 model = MiniMath::M4::identity();
-				model.m[0][0] = 1.5f;
-				model.m[1][1] = 1.5f;
-				model.m[2][2] = 1.5f;
-				model = MiniMath::translate(model, p.position);
-				renderable.AddInstanceTransform(model);
-
-				host_points.push_back(make_float3(p.position.x, p.position.y, p.position.z));
-				host_normals.push_back(make_float3(p.normal.x, p.normal.y, p.normal.z));
-				host_colors.push_back(make_float3(r, g, b));
-			}
-
-			alog("ALP %llu points loaded\n", alp.GetPoints().size());
-
-			renderable.EnableInstancing(alp.GetPoints().size());
-			auto [x, y, z] = alp.GetAABBCenter();
-			f32 cx = x;
-			f32 cy = y;
-			f32 cz = z;
-
-			Feather.CreateEventCallback<KeyEvent>(entity, [cx, cy, cz](Entity entity, const KeyEvent& event) {
-				auto renderable = Feather.GetComponent<Renderable>(entity);
-				if (GLFW_KEY_M == event.keyCode)
-				{
-					renderable.NextDrawingMode();
-				}
-				else if (GLFW_KEY_1 == event.keyCode)
-				{
-					renderable.SetActiveShaderIndex(0);
-				}
-				else if (GLFW_KEY_2 == event.keyCode)
-				{
-					renderable.SetActiveShaderIndex(1);
-				}
-				else if (GLFW_KEY_PAGE_UP == event.keyCode)
-				{
-
-				}
-				else if (GLFW_KEY_PAGE_DOWN == event.keyCode)
-				{
-				}
-				else if (GLFW_KEY_R == event.keyCode)
-				{
-					auto entities = Feather.GetRegistry().view<CameraManipulatorTrackball>();
-					for (auto& entity : entities)
-					{
-						auto cameraManipulator = Feather.GetComponent<CameraManipulatorTrackball>(entity);
-						auto camera = cameraManipulator.GetCamera();
-						camera->SetEye({ cx,cy,cz + cameraManipulator.GetRadius() });
-						camera->SetTarget({ cx,cy,cz });
-					}
-				}
-				});
-
-			t = Time::End(t, "Upload to GPU");
-
-			auto hashToFloat = [](uint32_t seed) -> float {
-				seed ^= seed >> 13;
-				seed *= 0x5bd1e995;
-				seed ^= seed >> 15;
-				return (seed & 0xFFFFFF) / static_cast<float>(0xFFFFFF);
-			};
-
-			auto pointLabels = cuMain(host_points, host_normals, host_colors, make_float3(x, y, z));
-			for (size_t i = 0; i < pointLabels.size(); i++)
-			{
-				auto label = pointLabels[i];
-				if (label != -1)
-				{
-					float r = hashToFloat(label * 3 + 0);
-					float g = hashToFloat(label * 3 + 1);
-					float b = hashToFloat(label * 3 + 2);
-
-					renderable.SetInstanceColor(i, MiniMath::V4(r, g, b, 1.0f));
-				}
-			}
-
-			{ // AABB
-				auto m = alp.GetAABBMin();
-				float x = get<0>(m);
-				float y = get<1>(m);
-				float z = get<2>(m);
-				auto M = alp.GetAABBMax();
-				float X = get<0>(M);
-				float Y = get<1>(M);
-				float Z = get<2>(M);
-
-				auto entity = Feather.CreateEntity("AABB");
-				auto renderable = Feather.CreateComponent<Renderable>(entity);
-				renderable.Initialize(Renderable::GeometryMode::Lines);
-
-				renderable.AddShader(Feather.CreateShader("Line", File("../../res/Shaders/Line.vs"), File("../../res/Shaders/Line.fs")));
-
-				renderable.AddVertex({ x, y, z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-				renderable.AddVertex({ X, y, z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-				renderable.AddVertex({ X, y, z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-				renderable.AddVertex({ X, Y, z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-				renderable.AddVertex({ X, Y, z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-				renderable.AddVertex({ x, Y, z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-				renderable.AddVertex({ x, Y, z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-				renderable.AddVertex({ x, y, z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-
-				renderable.AddVertex({ x, y, Z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-				renderable.AddVertex({ X, y, Z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-				renderable.AddVertex({ X, y, Z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-				renderable.AddVertex({ X, Y, Z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-				renderable.AddVertex({ X, Y, Z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-				renderable.AddVertex({ x, Y, Z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-				renderable.AddVertex({ x, Y, Z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-				renderable.AddVertex({ x, y, Z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-
-				renderable.AddVertex({ x, y, z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-				renderable.AddVertex({ x, y, Z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-				renderable.AddVertex({ X, y, z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-				renderable.AddVertex({ X, y, Z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-				renderable.AddVertex({ X, Y, z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-				renderable.AddVertex({ X, Y, Z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-				renderable.AddVertex({ x, Y, z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-				renderable.AddVertex({ x, Y, Z }); renderable.AddColor({ 0.0f, 0.0f, 1.0f, 1.0f });
-			}
-
-			{ // Cache Area
-				auto [cx, cy, cz] = alp.GetAABBCenter();
-
-				float x = cx + (-10.0f);
-				float y = cy + (-15.0f);
-				float z = cz + (-20.0f);
-				float X = cx + (10.0f);
-				float Y = cy + (15.0f);
-				float Z = cz + (20.0f);
-
-				auto entity = Feather.CreateEntity("CacheAABB");
-				auto renderable = Feather.CreateComponent<Renderable>(entity);
-				renderable.Initialize(Renderable::GeometryMode::Lines);
-
-				renderable.AddShader(Feather.CreateShader("Line", File("../../res/Shaders/Line.vs"), File("../../res/Shaders/Line.fs")));
-
-				renderable.AddVertex({ x, y, z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-				renderable.AddVertex({ X, y, z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-				renderable.AddVertex({ X, y, z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-				renderable.AddVertex({ X, Y, z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-				renderable.AddVertex({ X, Y, z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-				renderable.AddVertex({ x, Y, z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-				renderable.AddVertex({ x, Y, z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-				renderable.AddVertex({ x, y, z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-
-				renderable.AddVertex({ x, y, Z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-				renderable.AddVertex({ X, y, Z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-				renderable.AddVertex({ X, y, Z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-				renderable.AddVertex({ X, Y, Z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-				renderable.AddVertex({ X, Y, Z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-				renderable.AddVertex({ x, Y, Z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-				renderable.AddVertex({ x, Y, Z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-				renderable.AddVertex({ x, y, Z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-
-				renderable.AddVertex({ x, y, z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-				renderable.AddVertex({ x, y, Z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-				renderable.AddVertex({ X, y, z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-				renderable.AddVertex({ X, y, Z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-				renderable.AddVertex({ X, Y, z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-				renderable.AddVertex({ X, Y, Z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-				renderable.AddVertex({ x, Y, z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-				renderable.AddVertex({ x, Y, Z }); renderable.AddColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-			}
-		}
-#pragma endregion
-		});
-#endif
-
 	Feather.AddOnInitializeCallback([&]() {
 
-#define PLY_Model_File
+//#define PLY_Model_File
 #ifdef PLY_Model_File
 #pragma region Load PLY and Convert to ALP format
 		{
@@ -727,29 +471,116 @@ return (seed & 0xFFFFFF) / static_cast<float>(0xFFFFFF);
 		}
 #pragma endregion
 #endif
+
 	{
-		auto entity = Feather.CreateEntity("Texture");
-		auto renderable = Feather.CreateComponent<Renderable>(entity);
+		if (false == alp.Deserialize(resource_file_name_alp))
+		{
+			bool foundZero = false;
 
-		renderable->Initialize(Renderable::GeometryMode::Triangles);
-		renderable->AddShader(Feather.CreateShader("Texturing", File("../../res/Shaders/Texturing.vs"), File("../../res/Shaders/Texturing.fs")));
+			PLYFormat ply;
+			ply.Deserialize(resource_file_name_ply);
+			//ply.SwapAxisYZ();
 
-		auto texture = Feather.CreateComponent<Texture>(entity);
-		texture->LoadFile(File("../../res/2D/Owl.jpg"));
+			vector<PointPNC> points;
+			for (size_t i = 0; i < ply.GetPoints().size() / 3; i++)
+			{
+				auto px = ply.GetPoints()[i * 3];
+				auto py = ply.GetPoints()[i * 3 + 1];
+				auto pz = ply.GetPoints()[i * 3 + 2];
 
-		auto [indices, vertices, normals, colors, uvs] = GeometryBuilder::BuildPlane((f32)texture->GetWidth(), (f32)texture->GetHeight(), "zero", "zaxis");
-		//auto [indices, vertices, normals, colors, uvs] = GeometryBuilder::BuildBox("zero", "half");
-		renderable->AddIndices(indices);
-		renderable->AddVertices(vertices);
-		renderable->AddNormals(normals);
-		renderable->AddColors(colors);
-		renderable->AddUVs(uvs);
+				if (0 == px && 0 == py && 0 == pz)
+				{
+					if (false == foundZero)
+					{
+						foundZero = true;
+					}
+					else
+					{
+						continue;
+					}
+				}
 
+				auto nx = ply.GetNormals()[i * 3];
+				auto ny = ply.GetNormals()[i * 3 + 1];
+				auto nz = ply.GetNormals()[i * 3 + 2];
+
+				if (false == ply.GetColors().empty())
+				{
+					if (ply.UseAlpha())
+					{
+						auto cx = ply.GetColors()[i * 4];
+						auto cy = ply.GetColors()[i * 4 + 1];
+						auto cz = ply.GetColors()[i * 4 + 2];
+						auto ca = ply.GetColors()[i * 4 + 3];
+
+						points.push_back({ {px, py, pz}, {nx, ny, nz}, {cx, cy, cz} });
+					}
+					else
+					{
+						auto cx = ply.GetColors()[i * 3];
+						auto cy = ply.GetColors()[i * 3 + 1];
+						auto cz = ply.GetColors()[i * 3 + 2];
+
+						points.push_back({ {px, py, pz}, {nx, ny, nz}, {cx, cy, cz} });
+					}
+				}
+				else
+				{
+					points.push_back({ {px, py, pz}, {nx, ny, nz}, {1.0f, 1.0f, 1.0f} });
+				}
+			}
+			alog("PLY %llu points loaded\n", points.size());
+
+			alp.AddPoints(points);
+			alp.Serialize(resource_file_name_alp);
+		}
+
+		vector<float3> host_points;
+		vector<float3> host_normals;
+		vector<uchar3> host_colors;
+
+		for (auto& p : alp.GetPoints())
+		{
+			auto r = p.color.x;
+			auto g = p.color.y;
+			auto b = p.color.z;
+			auto a = 1.f;
+
+			host_points.push_back(make_float3(p.position.x, p.position.y, p.position.z));
+			host_normals.push_back(make_float3(p.normal.x, p.normal.y, p.normal.z));
+			host_colors.push_back(make_uchar3((unsigned char)(r * 255.0f), (unsigned char)(g * 255.0f), (unsigned char)(b * 255.0f)));
+		}
+
+		alog("ALP %llu points loaded\n", alp.GetPoints().size());
+		auto[cx, cy, cz] = alp.GetAABBCenter();
+		cuMain(0.1f, host_points, host_normals, host_colors, make_float3(cx, cy, cz));
 	}
+
+	//{
+	//	auto entity = Feather.CreateEntity("Texture");
+	//	auto renderable = Feather.CreateComponent<Renderable>(entity);
+
+	//	renderable->Initialize(Renderable::GeometryMode::Triangles);
+	//	renderable->AddShader(Feather.CreateShader("Texturing", File("../../res/Shaders/Texturing.vs"), File("../../res/Shaders/Texturing.fs")));
+
+	//	auto texture = Feather.CreateComponent<Texture>(entity);
+	//	texture->LoadFile(File("../../res/2D/Owl.jpg"));
+
+	//	auto [indices, vertices, normals, colors, uvs] = GeometryBuilder::BuildPlane((f32)texture->GetWidth(), (f32)texture->GetHeight(), "zero", "zaxis");
+	//	//auto [indices, vertices, normals, colors, uvs] = GeometryBuilder::BuildBox("zero", "half");
+	//	renderable->AddIndices(indices);
+	//	renderable->AddVertices(vertices);
+	//	renderable->AddNormals(normals);
+	//	renderable->AddColors(colors);
+	//	renderable->AddUVs(uvs);
+	//}
 
 	{
 		auto entity = Feather.CreateEntity("RayMarchingPlane");
 		auto renderable = Feather.CreateComponent<Renderable>(entity);
+
+		auto transform = Feather.CreateComponent<Transform>(entity);
+		transform->SetBillboard(true);
 
 		renderable->Initialize(Renderable::GeometryMode::Triangles);
 		renderable->AddShader(Feather.CreateShader("Texturing", File("../../res/Shaders/Texturing.vs"), File("../../res/Shaders/Texturing.fs")));
@@ -762,44 +593,6 @@ return (seed & 0xFFFFFF) / static_cast<float>(0xFFFFFF);
 		renderable->AddColors(colors);
 		renderable->AddUVs(uvs);
 
-		//ui8* textureData = new ui8[3840 * 2160 * 4];
-		//for (ui32 y = 0; y < 2160; y++)
-		//{
-		//	for (ui32 x = 0; x < 3840; x++)
-		//	{
-		//		auto index = y * 3840 * 4 + x * 4;
-
-		//		if (1080 > x && 1080 > y)
-		//		{
-		//			textureData[index] = 255;
-		//			textureData[index + 1] = 0;
-		//			textureData[index + 2] = 0;
-		//			textureData[index + 3] = 255;
-		//		}
-		//		else if(1920 < x && 1920 > y)
-		//		{
-		//			textureData[index] = 0;
-		//			textureData[index + 1] = 255;
-		//			textureData[index + 2] = 0;
-		//			textureData[index + 3] = 255;
-		//		}
-		//		else if (1080 > x && 1080 < y)
-		//		{
-		//			textureData[index] = 0;
-		//			textureData[index + 1] = 0;
-		//			textureData[index + 2] = 255;
-		//			textureData[index + 3] = 255;
-		//		}
-		//		else if (1920 < x && 1920 < y)
-		//		{
-		//			textureData[index] = 255;
-		//			textureData[index + 1] = 255;
-		//			textureData[index + 2] = 255;
-		//			textureData[index + 3] = 255;
-		//		}
-		//	}
-		//}
-
 		ForceGPUPerformance();
 
 		glfwMakeContextCurrent(w->GetGLFWwindow());
@@ -809,64 +602,84 @@ return (seed & 0xFFFFFF) / static_cast<float>(0xFFFFFF);
 
 		GenerateCUDATexture(texture->GetTextureID(), 3840, 2160, 0, 0);
 
-		//texture->SetTextureData(3840, 2160, textureData);
-		//texture->LoadFile(File("../../res/2D/Owl.jpg"));
+		//cudaThread = new thread([&w, &texture]() {
+		//	auto toEigenMatrix4f = [](const MiniMath::M4& mat)->Eigen::Matrix4f
+		//	{
+		//		Eigen::Matrix4f result;
+		//		for (int i = 0; i < 4; ++i)
+		//		{
+		//			for (int j = 0; j < 4; ++j)
+		//			{
+		//				result(i, j) = mat.m[i][j];
+		//			}
+		//		}
+		//		return result;
+		//	};
 
-		//delete[] textureData;
+		//	auto lastTime = Time::Now();
+		//	while (true)
+		//	{
+		//		glfwMakeContextCurrent(w->GetGLFWwindow());
+		//		
+		//		auto currentTime = Time::Now();
+		//		f32 timeDelta = Time::Microseconds(lastTime, currentTime);
+		//		lastTime = currentTime;
 
-		cudaThread = new thread([&w, &texture]() {
-			auto lastTime = Time::Now();
-			while (true)
-			{
-				glfwMakeContextCurrent(w->GetGLFWwindow());
-				
-				auto currentTime = Time::Now();
-				f32 timeDelta = Time::Microseconds(lastTime, currentTime);
-				lastTime = currentTime;
+		//		auto entity = Feather.GetEntityByName("RayMarchingPlane");
+		//		auto texture = Feather.GetComponent<Texture>(entity);
+		//		static f32 acc = 0;
+		//		acc += timeDelta / 10000.0f;
 
-				auto entity = Feather.GetEntityByName("RayMarchingPlane");
-				auto texture = Feather.GetComponent<Texture>(entity);
-				static f32 acc = 0;
-				acc += timeDelta / 10000.0f;
+		//		auto cameraEntity = Feather.GetEntityByName("Camera");
+		//		auto camera = Feather.GetComponent<PerspectiveCamera>(cameraEntity);
+		//		camera->GetViewMatrix();
+		//		
+		//		//CallFillTextureKernel(3840, 2160, acc, acc);
+		//		
+		//		ClearTexture(3840, 2160);
 
-				//UpdateCUDATexture(texture->GetTextureID(), 3840, 2160, acc, acc);
-				CallFillTextureKernel(3840, 2160, acc, acc);
-			}
+		//		RenderPointCloud(texture->GetTextureID(), 3840, 2160, toEigenMatrix4f(camera->GetProjectionMatrix()), toEigenMatrix4f(camera->GetViewMatrix()));
 
-			// 작업 끝나면 Context 해제
-			glfwMakeContextCurrent(nullptr);
-			});
+		//		Sleep(6);
+		//	}
+
+		//	glfwMakeContextCurrent(nullptr);
+		//	});
 	}
 	});
 
-	//thread t([]() {
-	//	ForceGPUPerformance();
-
-	//	auto lastTime = Time::Now();
-	//	while (true)
-	//	{
-	//		auto currentTime = Time::Now();
-	//		f32 timeDelta = Time::Microseconds(lastTime, currentTime);
-	//		lastTime = currentTime;
-
-	//		auto entity = Feather.GetEntityByName("RayMarchingPlane");
-	//		auto texture = Feather.GetComponent<Texture>(entity);
-	//		static f32 acc = 0;
-	//		acc += timeDelta / 10.0f;
-
-	//		UpdateCUDATexture(texture->GetTextureID(), 3840, 2160, acc, acc);
-	//	}
-	//	});
-
 	Feather.AddOnUpdateCallback([](f32 timeDelta) {
 		//alog("Update\n");
+
+		auto toEigenMatrix4f = [](const MiniMath::M4& mat)->Eigen::Matrix4f
+		{
+			Eigen::Matrix4f result;
+			for (int i = 0; i < 4; ++i)
+			{
+				for (int j = 0; j < 4; ++j)
+				{
+					result(i, j) = mat.m[i][j];
+				}
+			}
+			return result;
+		};
 
 		auto entity = Feather.GetEntityByName("RayMarchingPlane");
 		auto texture = Feather.GetComponent<Texture>(entity);
 		static f32 acc = 0;
 		acc += timeDelta / 10.0f;
+
+		auto cameraEntity = Feather.GetEntityByName("Camera");
+		auto camera = Feather.GetComponent<PerspectiveCamera>(cameraEntity);
+		camera->GetViewMatrix();
+				
+		//CallFillTextureKernel(3840, 2160, acc, acc);
+				
+		//ClearTexture(3840, 2160);
+
+		//RenderPointCloud(texture->GetTextureID(), 3840, 2160, toEigenMatrix4f(camera->GetProjectionMatrix()), toEigenMatrix4f(camera->GetViewMatrix()));
 		
-		UpdateCUDATexture(texture->GetTextureID(), 3840, 2160, acc, acc);
+		UpdateCUDATexture(texture->GetTextureID(), 3840, 2160, toEigenMatrix4f(camera->GetProjectionMatrix()), toEigenMatrix4f(camera->GetViewMatrix()));
 
 		});
 

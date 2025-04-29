@@ -21,25 +21,34 @@
 
 #include <Serialization.hpp>
 
-#include <Eigen/Core>
-#include <Eigen/Dense>
-
 #pragma comment(lib, "nvapi64.lib")
 
-Eigen::Vector3f* d_points;
-Eigen::Vector3f* d_normals;
-Eigen::Vector3f* d_colors;
-unsigned int numberOfPoints = 0;
+struct PointCloud
+{
+    Eigen::Vector3f* d_points = nullptr;
+    Eigen::Vector3f* d_normals = nullptr;
+    Eigen::Vector3b* d_colors = nullptr;
+    unsigned int numberOfPoints = 0;
+};
+
+PointCloud pointCloud;
 
 void cuMain(
 	float voxelSize,
 	std::vector<float3>& host_points,
 	std::vector<float3>& host_normals,
-	std::vector<float3>& host_colors,
+	std::vector<uchar3>& host_colors,
 	float3 center)
 {
-    numberOfPoints = host_points.size();
-    alog("askjdfh\n");
+    pointCloud.numberOfPoints = host_points.size();
+
+    cudaMalloc(&pointCloud.d_points, sizeof(Eigen::Vector3f) * pointCloud.numberOfPoints);
+    cudaMalloc(&pointCloud.d_normals, sizeof(Eigen::Vector3f) * pointCloud.numberOfPoints);
+    cudaMalloc(&pointCloud.d_colors, sizeof(Eigen::Vector3b) * pointCloud.numberOfPoints);
+
+    cudaMemcpy(pointCloud.d_points, host_points.data(), sizeof(Eigen::Vector3f) * pointCloud.numberOfPoints, cudaMemcpyHostToDevice);
+    cudaMemcpy(pointCloud.d_normals, host_normals.data(), sizeof(Eigen::Vector3f) * pointCloud.numberOfPoints, cudaMemcpyHostToDevice);
+    cudaMemcpy(pointCloud.d_colors, host_colors.data(), sizeof(Eigen::Vector3b) * pointCloud.numberOfPoints, cudaMemcpyHostToDevice);
 }
 
 bool ForceGPUPerformance()
@@ -225,17 +234,19 @@ void GenerateCUDATexture(unsigned int textureID, unsigned int width, unsigned in
     cudaDeviceSynchronize();
 
     // (6) Clean up
-    cudaDestroySurfaceObject(surfaceObject);
+    //cudaDestroySurfaceObject(surfaceObject);
     cudaGraphicsUnmapResources(1, &cudaResource, 0);
 
     cudaDeviceSynchronize();
 }
 
-void UpdateCUDATexture(unsigned int textureID, unsigned int width, unsigned int height, unsigned int xOffset, int yOffset)
+void UpdateCUDATexture(unsigned int textureID, unsigned int width, unsigned int height, Eigen::Matrix4f projectionMatrix, Eigen::Matrix4f viewMatrix)
 {
+    //return;
+
     if (cudaResource == nullptr) return;
 
-    if (false == tick) return;
+    //if (false == tick) return;
 
     nvtxRangePushA("UpdateCUDATexture");
 
@@ -272,6 +283,9 @@ void UpdateCUDATexture(unsigned int textureID, unsigned int width, unsigned int 
     cudaSurfaceObject_t surfaceObject = 0; // <-- 여기가 로컬 변수
     cudaCreateSurfaceObject(&surfaceObject, &resDesc);
 
+    ClearTexture(3840, 2160);
+    RenderPointCloud(textureID, width, height, projectionMatrix, viewMatrix);
+
     //// (5) Kernel Launch
     //dim3 blockSize(32, 32);
     //dim3 gridSize((width + blockSize.x - 1) / blockSize.x, (height + blockSize.y - 1) / blockSize.y);
@@ -281,7 +295,7 @@ void UpdateCUDATexture(unsigned int textureID, unsigned int width, unsigned int 
     //CallFillTextureKernel(width, height, xOffset, yOffset);
 
     // (6) Clean up
-    cudaDestroySurfaceObject(surfaceObject);
+    //cudaDestroySurfaceObject(surfaceObject);
     cudaGraphicsUnmapResources(1, &cudaResource, 0);
 
     cudaDeviceSynchronize();
@@ -291,6 +305,8 @@ void UpdateCUDATexture(unsigned int textureID, unsigned int width, unsigned int 
     glGenerateMipmap(GL_TEXTURE_2D);
     //glBindTexture(GL_TEXTURE_2D, 0);
 
+    glFinish();
+
     nvtxRangePop();
 
     tick = false;
@@ -298,7 +314,7 @@ void UpdateCUDATexture(unsigned int textureID, unsigned int width, unsigned int 
 
 void CallFillTextureKernel(unsigned int width, unsigned int height, unsigned int xOffset, int yOffset)
 {
-    if (true == tick) return;
+    //if (true == tick) return;
 
     nvtxRangePushA("CallFillTextureKernel");
     
@@ -306,6 +322,79 @@ void CallFillTextureKernel(unsigned int width, unsigned int height, unsigned int
     dim3 blockSize(32, 32);
     dim3 gridSize((width + blockSize.x - 1) / blockSize.x, (height + blockSize.y - 1) / blockSize.y);
     fillTextureKernel << <gridSize, blockSize >> > (surfaceObject, width, height, xOffset, yOffset);
+    cudaDeviceSynchronize();
+
+    nvtxRangePop();
+
+    tick = true;
+}
+
+__global__ void Kernel_ClearTexture(cudaSurfaceObject_t surface, int width, int height)
+{
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+    if (x >= width || y >= height) return;
+
+    uchar4 color;
+    color.x = 0;
+    color.y = 0;
+    color.z = 0;
+    color.w = 255;
+
+    surf2Dwrite(color, surface, x * sizeof(uchar4), y);
+}
+
+void ClearTexture(unsigned int width, unsigned int height)
+{
+    //if (true == tick) return;
+
+    nvtxRangePushA("ClearTexture");
+
+
+    dim3 blockSize(32, 32);
+    dim3 gridSize((width + blockSize.x - 1) / blockSize.x, (height + blockSize.y - 1) / blockSize.y);
+    Kernel_ClearTexture << <gridSize, blockSize >> > (surfaceObject, width, height);
+    cudaDeviceSynchronize();
+
+    nvtxRangePop();
+}
+
+__global__ void Kernel_RenderPointCloud(cudaSurfaceObject_t surface, int width, int height, Eigen::Matrix4f projectionMatrix, Eigen::Matrix4f viewMatrix, PointCloud pointCloud)
+{
+    unsigned int threadid = blockIdx.x * blockDim.x + threadIdx.x;
+    if (threadid >= pointCloud.numberOfPoints) return;
+
+    Eigen::Vector3f gp = pointCloud.d_points[threadid];
+    //Eigen::Vector3f lp = (projectionMatrix * viewMatrix * Eigen::Vector4f(gp.x() * 10.0f, gp.y() * 10.0f, gp.z() * 10.0f, 1.0f)).head<3>();
+    Eigen::Vector3f lp = (viewMatrix * Eigen::Vector4f(gp.x() * 10.0f, gp.y() * 10.0f, gp.z() * 10.0f, 1.0f)).head<3>();
+    Eigen::Vector3f gn = pointCloud.d_normals[threadid];
+    Eigen::Vector3b gc = pointCloud.d_colors[threadid];
+
+    Eigen::Vector3f tp = Eigen::Vector3f(lp.x() + (float)width * 0.5f, lp.y() + (float)height * 0.5f, lp.z());
+    unsigned int ix = floorf(tp.x());
+    unsigned int iy = floorf(tp.y());
+
+    if (ix >= width || iy >= height) return;
+
+    uchar4 color;
+    color.x = gc.x();
+    color.y = gc.y();
+    color.z = gc.z();
+    color.w = 1.0f;
+
+    surf2Dwrite(color, surface, ix * sizeof(uchar4), iy);
+}
+
+void RenderPointCloud(unsigned int textureID, unsigned int width, unsigned int height, Eigen::Matrix4f projectionMatrix, Eigen::Matrix4f viewMatrix)
+{
+    //if (true == tick) return;
+
+    nvtxRangePushA("RenderPointCloud");
+
+
+    unsigned int blockSize = 512;
+    unsigned int gridSize = (pointCloud.numberOfPoints + blockSize - 1) / blockSize;
+    Kernel_RenderPointCloud << <gridSize, blockSize >> > (surfaceObject, width, height, projectionMatrix, viewMatrix, pointCloud);
     cudaDeviceSynchronize();
 
     nvtxRangePop();
