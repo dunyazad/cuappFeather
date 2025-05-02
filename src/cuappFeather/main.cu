@@ -23,6 +23,74 @@
 
 #pragma comment(lib, "nvapi64.lib")
 
+__host__ __device__
+float3 rgb_to_hsv(uchar3 rgb) {
+    float r = rgb.x / 255.0f;
+    float g = rgb.y / 255.0f;
+    float b = rgb.z / 255.0f;
+
+    float cmax = fmaxf(r, fmaxf(g, b));
+    float cmin = fminf(r, fminf(g, b));
+    float delta = cmax - cmin;
+
+    float h = 0.0f;
+    if (delta > 1e-6f) {
+        if (cmax == r) {
+            h = fmodf((g - b) / delta, 6.0f);
+        }
+        else if (cmax == g) {
+            h = (b - r) / delta + 2.0f;
+        }
+        else {
+            h = (r - g) / delta + 4.0f;
+        }
+        h *= 60.0f;
+        if (h < 0.0f) h += 360.0f;
+    }
+
+    float s = (cmax == 0.0f) ? 0.0f : delta / cmax;
+    float v = cmax;
+
+    return make_float3(h, s, v); // H in degrees, S and V in [0,1]
+}
+
+__host__ __device__
+uchar3 hsv_to_rgb(float3 hsv) {
+    float h = hsv.x; // [0, 360)
+    float s = hsv.y; // [0, 1]
+    float v = hsv.z; // [0, 1]
+
+    float c = v * s;
+    float x = c * (1.0f - fabsf(fmodf(h / 60.0f, 2.0f) - 1.0f));
+    float m = v - c;
+
+    float r, g, b;
+    if (h < 60.0f) {
+        r = c; g = x; b = 0;
+    }
+    else if (h < 120.0f) {
+        r = x; g = c; b = 0;
+    }
+    else if (h < 180.0f) {
+        r = 0; g = c; b = x;
+    }
+    else if (h < 240.0f) {
+        r = 0; g = x; b = c;
+    }
+    else if (h < 300.0f) {
+        r = x; g = 0; b = c;
+    }
+    else {
+        r = c; g = 0; b = x;
+    }
+
+    uchar3 rgb;
+    rgb.x = static_cast<unsigned char>((r + m) * 255.0f);
+    rgb.y = static_cast<unsigned char>((g + m) * 255.0f);
+    rgb.z = static_cast<unsigned char>((b + m) * 255.0f);
+    return rgb;
+}
+
 struct PointCloud
 {
     Eigen::Vector3f* d_points = nullptr;
@@ -32,6 +100,74 @@ struct PointCloud
 };
 
 PointCloud pointCloud;
+
+__global__ void Kernel_DetectEdge(
+    const Eigen::Vector3f* d_points,
+    const Eigen::Vector3f* d_normals,
+    const Eigen::Vector3b* d_colors,
+    bool* d_is_edge,
+    int numberOfPoints)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= numberOfPoints) return;
+
+    Eigen::Vector3f pi = d_points[idx];
+    Eigen::Vector3f ni = d_normals[idx];
+    Eigen::Vector3b ci = d_colors[idx];
+
+    float3 hsv_i = rgb_to_hsv(make_uchar3(ci.x(), ci.y(), ci.z()));
+
+    int edge_count = 0;
+    int total_neighbors = 0;
+
+    // 예시: 고정 반경 내 이웃 검색 (공간 인덱싱 구조가 있어야 효율적)
+    for (int j = 0; j < numberOfPoints; ++j) {
+        if (j == idx) continue;
+
+        Eigen::Vector3f pj = d_points[j];
+        if ((pj - pi).squaredNorm() > 0.01f) continue; // 반경 제약
+
+        Eigen::Vector3f nj = d_normals[j];
+        Eigen::Vector3b cj = d_colors[j];
+        float3 hsv_j = rgb_to_hsv(make_uchar3(cj.x(), cj.y(), cj.z()));
+
+        float angle = acosf(fminf(fmaxf(ni.dot(nj), -1.0f), 1.0f));
+        float h_diff = fmodf(fabsf(hsv_i.x - hsv_j.x), 360.0f);
+        h_diff = fminf(h_diff, 360.0f - h_diff);
+
+        if (angle > 0.3f || h_diff > 20.0f) {
+            edge_count++;
+        }
+
+        total_neighbors++;
+    }
+
+    d_is_edge[idx] = (edge_count >= 2);
+}
+
+vector<bool> DetectEdge()
+{
+    vector<bool> h_is_edge(pointCloud.numberOfPoints);
+    bool* d_is_edge = nullptr;
+    cudaMalloc(&d_is_edge, sizeof(bool) * pointCloud.numberOfPoints);
+
+    unsigned int blockSize = 256;
+    unsigned int gridOccupied = (pointCloud.numberOfPoints + blockSize - 1) / blockSize;
+
+    Kernel_DetectEdge << <gridOccupied, blockSize >> > (
+        pointCloud.d_points,
+        pointCloud.d_normals,
+        pointCloud.d_colors,
+        d_is_edge,
+        pointCloud.numberOfPoints);
+
+    cudaDeviceSynchronize();
+
+    cudaMemcpy(&h_is_edge[0], d_is_edge, sizeof(bool) * pointCloud.numberOfPoints, cudaMemcpyDeviceToHost);
+
+    cudaDeviceSynchronize();
+    return h_is_edge;
+}
 
 void cuMain(
 	float voxelSize,
@@ -169,227 +305,3 @@ bool ForceGPUPerformance()
 //	hSession = 0;
 //}
 #pragma endregion
-
-cudaSurfaceObject_t surfaceObject = 0;
-cudaGraphicsResource* cudaResource = nullptr;
-
-__global__ void fillTextureKernel(cudaSurfaceObject_t surface, int width, int height, int xOffset, int yOffset)
-{
-	int x = blockIdx.x * blockDim.x + threadIdx.x;
-	int y = blockIdx.y * blockDim.y + threadIdx.y;
-	if (x >= width || y >= height) return;
-
-	uchar4 color;
-	color.x = (x + xOffset) % 256;
-	color.y = (y + yOffset) % 256;
-	color.z = 128;
-	color.w = 255;
-
-	surf2Dwrite(color, surface, x * sizeof(uchar4), y);
-}
-
-void GenerateCUDATexture(unsigned int textureID, unsigned int width, unsigned int height, unsigned int xOffset, int yOffset)
-{
-    //cudaGLSetGLDevice(0);
-
-    // (1) Register OpenGL texture to CUDA
-    cudaError_t err = cudaGraphicsGLRegisterImage(&cudaResource, textureID, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsWriteDiscard);
-    if (err != cudaSuccess)
-    {
-        std::cerr << "cudaGraphicsGLRegisterImage failed: " << cudaGetErrorString(err) << std::endl;
-        return; // <<< 여기서 끝내야 합니다
-    }
-
-    // (2) Map Resources
-    err = cudaGraphicsMapResources(1, &cudaResource, 0);
-    if (err != cudaSuccess)
-    {
-        std::cerr << "cudaGraphicsMapResources failed: " << cudaGetErrorString(err) << std::endl;
-        return;
-    }
-
-    // (3) Get mapped array
-    cudaArray* textureArray = nullptr;
-    err = cudaGraphicsSubResourceGetMappedArray(&textureArray, cudaResource, 0, 0);
-    if (err != cudaSuccess)
-    {
-        std::cerr << "cudaGraphicsSubResourceGetMappedArray failed: " << cudaGetErrorString(err) << std::endl;
-        return;
-    }
-
-    // (4) Create surface object
-    cudaResourceDesc resDesc = {};
-    resDesc.resType = cudaResourceTypeArray;
-    resDesc.res.array.array = textureArray;
-
-    
-    cudaCreateSurfaceObject(&surfaceObject, &resDesc);
-
-    // (5) Kernel Launch
-    dim3 blockSize(32, 32);
-    dim3 gridSize((width + blockSize.x - 1) / blockSize.x, (height + blockSize.y - 1) / blockSize.y);
-    fillTextureKernel << <gridSize, blockSize >> > (surfaceObject, width, height, xOffset, yOffset);
-    cudaDeviceSynchronize();
-
-    // (6) Clean up
-    //cudaDestroySurfaceObject(surfaceObject);
-    cudaGraphicsUnmapResources(1, &cudaResource, 0);
-
-    cudaDeviceSynchronize();
-}
-
-void UpdateCUDATexture(unsigned int textureID, unsigned int width, unsigned int height, Eigen::Matrix4f projectionMatrix, Eigen::Matrix4f viewMatrix)
-{
-    //return;
-
-    if (cudaResource == nullptr) return;
-
-    //if (false == tick) return;
-
-    nvtxRangePushA("UpdateCUDATexture");
-
-    //// (1) Register OpenGL texture to CUDA
-    //cudaError_t err = cudaGraphicsGLRegisterImage(&cudaResource, textureID, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsWriteDiscard);
-    //if (err != cudaSuccess)
-    //{
-    //    std::cerr << "cudaGraphicsGLRegisterImage failed: " << cudaGetErrorString(err) << std::endl;
-    //    return; // <<< 여기서 끝내야 합니다
-    //}
-
-     // (2) Map Resources
-    auto err = cudaGraphicsMapResources(1, &cudaResource, 0);
-    if (err != cudaSuccess)
-    {
-        std::cerr << "cudaGraphicsMapResources failed: " << cudaGetErrorString(err) << std::endl;
-        return;
-    }
-
-    // (3) Get mapped array
-    cudaArray* textureArray = nullptr;
-    err = cudaGraphicsSubResourceGetMappedArray(&textureArray, cudaResource, 0, 0);
-    if (err != cudaSuccess)
-    {
-        std::cerr << "cudaGraphicsSubResourceGetMappedArray failed: " << cudaGetErrorString(err) << std::endl;
-        return;
-    }
-
-    // (4) Create surface object
-    cudaResourceDesc resDesc = {};
-    resDesc.resType = cudaResourceTypeArray;
-    resDesc.res.array.array = textureArray;
-
-    cudaSurfaceObject_t surfaceObject = 0; // <-- 여기가 로컬 변수
-    cudaCreateSurfaceObject(&surfaceObject, &resDesc);
-
-    ClearTexture(3840, 2160);
-    RenderPointCloud(textureID, width, height, projectionMatrix, viewMatrix);
-
-    //// (5) Kernel Launch
-    //dim3 blockSize(32, 32);
-    //dim3 gridSize((width + blockSize.x - 1) / blockSize.x, (height + blockSize.y - 1) / blockSize.y);
-    //fillTextureKernel << <gridSize, blockSize >> > (surfaceObject, width, height, xOffset, yOffset);
-    //cudaDeviceSynchronize();
-
-    //CallFillTextureKernel(width, height, xOffset, yOffset);
-
-    // (6) Clean up
-    //cudaDestroySurfaceObject(surfaceObject);
-    cudaGraphicsUnmapResources(1, &cudaResource, 0);
-
-    cudaDeviceSynchronize();
-
-    //  업데이트 후 Mipmap 갱신
-    glBindTexture(GL_TEXTURE_2D, textureID);
-    glGenerateMipmap(GL_TEXTURE_2D);
-    //glBindTexture(GL_TEXTURE_2D, 0);
-
-    glFinish();
-
-    nvtxRangePop();
-}
-
-void CallFillTextureKernel(unsigned int width, unsigned int height, unsigned int xOffset, int yOffset)
-{
-    //if (true == tick) return;
-
-    nvtxRangePushA("CallFillTextureKernel");
-    
-
-    dim3 blockSize(32, 32);
-    dim3 gridSize((width + blockSize.x - 1) / blockSize.x, (height + blockSize.y - 1) / blockSize.y);
-    fillTextureKernel << <gridSize, blockSize >> > (surfaceObject, width, height, xOffset, yOffset);
-    cudaDeviceSynchronize();
-
-    nvtxRangePop();
-}
-
-__global__ void Kernel_ClearTexture(cudaSurfaceObject_t surface, int width, int height)
-{
-    int x = blockIdx.x * blockDim.x + threadIdx.x;
-    int y = blockIdx.y * blockDim.y + threadIdx.y;
-    if (x >= width || y >= height) return;
-
-    uchar4 color;
-    color.x = 0;
-    color.y = 0;
-    color.z = 0;
-    color.w = 255;
-
-    surf2Dwrite(color, surface, x * sizeof(uchar4), y);
-}
-
-void ClearTexture(unsigned int width, unsigned int height)
-{
-    //if (true == tick) return;
-
-    nvtxRangePushA("ClearTexture");
-
-
-    dim3 blockSize(32, 32);
-    dim3 gridSize((width + blockSize.x - 1) / blockSize.x, (height + blockSize.y - 1) / blockSize.y);
-    Kernel_ClearTexture << <gridSize, blockSize >> > (surfaceObject, width, height);
-    cudaDeviceSynchronize();
-
-    nvtxRangePop();
-}
-
-__global__ void Kernel_RenderPointCloud(cudaSurfaceObject_t surface, int width, int height, Eigen::Matrix4f projectionMatrix, Eigen::Matrix4f viewMatrix, PointCloud pointCloud)
-{
-    unsigned int threadid = blockIdx.x * blockDim.x + threadIdx.x;
-    if (threadid >= pointCloud.numberOfPoints) return;
-
-    Eigen::Vector3f gp = pointCloud.d_points[threadid];
-    //Eigen::Vector3f lp = (projectionMatrix * viewMatrix * Eigen::Vector4f(gp.x() * 10.0f, gp.y() * 10.0f, gp.z() * 10.0f, 1.0f)).head<3>();
-    Eigen::Vector3f lp = (viewMatrix * Eigen::Vector4f(gp.x() * 100.0f, gp.y() * 100.0f, gp.z() * 100.0f, 1.0f)).head<3>();
-    Eigen::Vector3f gn = pointCloud.d_normals[threadid];
-    Eigen::Vector3b gc = pointCloud.d_colors[threadid];
-
-    Eigen::Vector3f tp = Eigen::Vector3f(lp.x() + (float)width * 0.5f, lp.y() + (float)height * 0.5f, lp.z());
-    unsigned int ix = floorf(tp.x());
-    unsigned int iy = floorf(tp.y());
-
-    if (ix >= width || iy >= height) return;
-
-    uchar4 color;
-    color.x = gc.x();
-    color.y = gc.y();
-    color.z = gc.z();
-    color.w = 255;
-
-    surf2Dwrite(color, surface, ix * sizeof(uchar4), iy);
-}
-
-void RenderPointCloud(unsigned int textureID, unsigned int width, unsigned int height, Eigen::Matrix4f projectionMatrix, Eigen::Matrix4f viewMatrix)
-{
-    //if (true == tick) return;
-
-    nvtxRangePushA("RenderPointCloud");
-
-
-    unsigned int blockSize = 512;
-    unsigned int gridSize = (pointCloud.numberOfPoints + blockSize - 1) / blockSize;
-    Kernel_RenderPointCloud << <gridSize, blockSize >> > (surfaceObject, width, height, projectionMatrix, viewMatrix, pointCloud);
-    cudaDeviceSynchronize();
-
-    nvtxRangePop();
-}
