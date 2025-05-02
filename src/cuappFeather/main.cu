@@ -170,8 +170,6 @@ bool ForceGPUPerformance()
 //}
 #pragma endregion
 
-bool tick = false;
-
 cudaSurfaceObject_t surfaceObject = 0;
 cudaGraphicsResource* cudaResource = nullptr;
 
@@ -308,8 +306,6 @@ void UpdateCUDATexture(unsigned int textureID, unsigned int width, unsigned int 
     glFinish();
 
     nvtxRangePop();
-
-    tick = false;
 }
 
 void CallFillTextureKernel(unsigned int width, unsigned int height, unsigned int xOffset, int yOffset)
@@ -325,8 +321,6 @@ void CallFillTextureKernel(unsigned int width, unsigned int height, unsigned int
     cudaDeviceSynchronize();
 
     nvtxRangePop();
-
-    tick = true;
 }
 
 __global__ void Kernel_ClearTexture(cudaSurfaceObject_t surface, int width, int height)
@@ -366,7 +360,7 @@ __global__ void Kernel_RenderPointCloud(cudaSurfaceObject_t surface, int width, 
 
     Eigen::Vector3f gp = pointCloud.d_points[threadid];
     //Eigen::Vector3f lp = (projectionMatrix * viewMatrix * Eigen::Vector4f(gp.x() * 10.0f, gp.y() * 10.0f, gp.z() * 10.0f, 1.0f)).head<3>();
-    Eigen::Vector3f lp = (viewMatrix * Eigen::Vector4f(gp.x() * 10.0f, gp.y() * 10.0f, gp.z() * 10.0f, 1.0f)).head<3>();
+    Eigen::Vector3f lp = (viewMatrix * Eigen::Vector4f(gp.x() * 100.0f, gp.y() * 100.0f, gp.z() * 100.0f, 1.0f)).head<3>();
     Eigen::Vector3f gn = pointCloud.d_normals[threadid];
     Eigen::Vector3b gc = pointCloud.d_colors[threadid];
 
@@ -380,7 +374,7 @@ __global__ void Kernel_RenderPointCloud(cudaSurfaceObject_t surface, int width, 
     color.x = gc.x();
     color.y = gc.y();
     color.z = gc.z();
-    color.w = 1.0f;
+    color.w = 255;
 
     surf2Dwrite(color, surface, ix * sizeof(uchar4), iy);
 }
@@ -398,6 +392,4 @@ void RenderPointCloud(unsigned int textureID, unsigned int width, unsigned int h
     cudaDeviceSynchronize();
 
     nvtxRangePop();
-
-    tick = true;
 }

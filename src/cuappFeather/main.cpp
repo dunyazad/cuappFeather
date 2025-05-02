@@ -579,13 +579,13 @@ return (seed & 0xFFFFFF) / static_cast<float>(0xFFFFFF);
 		auto entity = Feather.CreateEntity("RayMarchingPlane");
 		auto renderable = Feather.CreateComponent<Renderable>(entity);
 
-		auto transform = Feather.CreateComponent<Transform>(entity);
-		transform->SetBillboard(true);
+		//auto transform = Feather.CreateComponent<Transform>(entity);
+		//transform->SetBillboard(true);
 
 		renderable->Initialize(Renderable::GeometryMode::Triangles);
 		renderable->AddShader(Feather.CreateShader("Texturing", File("../../res/Shaders/Texturing.vs"), File("../../res/Shaders/Texturing.fs")));
 
-		auto [indices, vertices, normals, colors, uvs] = GeometryBuilder::BuildPlane(384.0f, 216.0f, "zero", "zaxis");
+		auto [indices, vertices, normals, colors, uvs] = GeometryBuilder::BuildPlane(3840.0f, 2160.0f, "zero", "zaxis");
 		//auto [indices, vertices, normals, colors, uvs] = GeometryBuilder::BuildBox("zero", "half");
 		renderable->AddIndices(indices);
 		renderable->AddVertices(vertices);
