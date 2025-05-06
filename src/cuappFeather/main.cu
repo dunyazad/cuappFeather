@@ -15,6 +15,11 @@
 
 #include <Serialization.hpp>
 
+#include <Eigen/Core>
+#include <Eigen/Dense>
+#include <Eigen/Sparse>
+#include <Eigen/Geometry>
+
 #ifdef Voxel CCL
 namespace Clustering
 {
@@ -453,6 +458,7 @@ std::vector<unsigned int> cuMain(float voxelSize, const std::vector<float3>& hos
 struct Voxel {
 	int3 coord;
 	unsigned int label;
+	Eigen::Vector3f normal;
 	int occupied;
 };
 
@@ -471,6 +477,12 @@ __device__ __forceinline__ unsigned int FindRoot(Voxel* voxels, unsigned int idx
 __device__ __forceinline__ void Union(Voxel* voxels, unsigned int a, unsigned int b) {
 	unsigned int rootA = FindRoot(voxels, a);
 	unsigned int rootB = FindRoot(voxels, b);
+
+	auto nA = voxels[a].normal;
+	auto nB = voxels[b].normal;
+
+	if (0.25f > nA.dot(nB)) return;
+
 	if (rootA != rootB) {
 		if (rootA < rootB)
 			atomicMin(&voxels[rootB].label, rootA);
@@ -479,11 +491,13 @@ __device__ __forceinline__ void Union(Voxel* voxels, unsigned int a, unsigned in
 	}
 }
 
-__global__ void insert_voxels(float3* points, int n, float voxel_size, Voxel* table, size_t table_size) {
+__global__ void insert_voxels(float3* points, float3* normals, int numberOfPoints, float voxel_size, Voxel* table, size_t table_size) {
 	int idx = blockIdx.x * blockDim.x + threadIdx.x;
-	if (idx >= n) return;
+	if (idx >= numberOfPoints) return;
 
 	float3 p = points[idx];
+	float3 n = normals[idx];
+
 	int3 coord = make_int3(floorf(p.x / voxel_size), floorf(p.y / voxel_size), floorf(p.z / voxel_size));
 
 	size_t h = voxel_hash(coord);
@@ -492,6 +506,7 @@ __global__ void insert_voxels(float3* points, int n, float voxel_size, Voxel* ta
 		if (!atomicExch(&table[slot].occupied, true)) {
 			table[slot].coord = coord;
 			table[slot].label = slot;
+			table[slot].normal = Eigen::Vector3f(n.x, n.y, n.z);
 			return;
 		}
 	}
@@ -596,6 +611,10 @@ std::vector<unsigned int> cuMain(
 	cudaMalloc(&d_points, sizeof(float3) * host_points.size());
 	cudaMemcpy(d_points, host_points.data(), sizeof(float3) * host_points.size(), cudaMemcpyHostToDevice);
 
+	float3* d_normals;
+	cudaMalloc(&d_normals, sizeof(float3) * host_points.size());
+	cudaMemcpy(d_normals, host_normals.data(), sizeof(float3) * host_normals.size(), cudaMemcpyHostToDevice);
+
 	unsigned int* d_labels;
 	cudaMalloc(&d_labels, sizeof(unsigned int) * host_points.size());
 
@@ -609,7 +628,7 @@ std::vector<unsigned int> cuMain(
 
 	int num_points = static_cast<int>(host_points.size());
 	int num_blocks = (num_points + BLOCK_SIZE - 1) / BLOCK_SIZE;
-	insert_voxels << <num_blocks, BLOCK_SIZE >> > (d_points, num_points, voxelSize, d_table, TABLE_SIZE);
+	insert_voxels << <num_blocks, BLOCK_SIZE >> > (d_points, d_normals, num_points, voxelSize, d_table, TABLE_SIZE);
 	cudaDeviceSynchronize();
 
 	int extractBlocks = (TABLE_SIZE + BLOCK_SIZE - 1) / BLOCK_SIZE;
@@ -636,6 +655,7 @@ std::vector<unsigned int> cuMain(
 
 	cudaFree(d_counter);
 	cudaFree(d_points);
+	cudaFree(d_normals);
 	cudaFree(d_labels);
 	cudaFree(d_table);
 	cudaFree(d_occupiedIndices);

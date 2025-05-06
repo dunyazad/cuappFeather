@@ -27,8 +27,8 @@ using namespace std;
 //const string resource_file_name_ply = "../../res/3D/Normal.ply";
 //const string resource_file_name_alp = "../../res/3D/Normal.alp";
 
-//const string resource_file_name = "Compound_Partial";
-const string resource_file_name = "Compound";
+const string resource_file_name = "Compound_Partial";
+//const string resource_file_name = "Compound_Full";
 const string resource_file_name_ply = "../../res/3D/" + resource_file_name + ".ply";
 const string resource_file_name_alp = "../../res/3D/" + resource_file_name + ".alp";
 
@@ -1009,6 +1009,17 @@ int main(int argc, char** argv)
 				alp.Serialize(resource_file_name_alp);
 			}
 
+			//{
+			//	PLYFormat ply;
+			//	for (auto& p : alp.GetPoints())
+			//	{
+			//		ply.AddPoint(p.position.x, p.position.y, p.position.z);
+			//		ply.AddNormal(p.normal.x, p.normal.y, p.normal.z);
+			//		ply.AddColor(p.color.x, p.color.y, p.color.z);
+			//	}
+			//	ply.Serialize(resource_file_name_ply);
+			//}
+
 			t = Time::End(t, "Loading Compound");
 
 			auto entity = Feather.CreateEntity("Input Point Cloud");
@@ -1185,9 +1196,9 @@ int main(int argc, char** argv)
 				else
 				{
 					auto m = renderable.GetInstanceTransform(i);
-					m.at(0, 0) *= 0.125f;
+					/*m.at(0, 0) *= 0.125f;
 					m.at(1, 1) *= 0.125f;
-					m.at(2, 2) *= 0.125f;
+					m.at(2, 2) *= 0.125f;*/
 					renderable.SetInstanceTransform(i, m);
 					renderable.SetInstanceColor(i, MiniMath::V4(1.0f, 0.0f, 0.0f, 0.0f));
 				}
