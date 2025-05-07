@@ -26,4 +26,4 @@ void cuMain(float voxelSize, std::vector<float3>& host_points, std::vector<float
 
 bool ForceGPUPerformance();
 
-std::vector<bool> DetectEdge();
+std::vector<uint8_t> DetectEdge();
